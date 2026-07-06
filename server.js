@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────────────────────
 //  라이어 그림 게임 - 실시간 멀티플레이 서버
-//  Express + Socket.IO
+//  Express + Socket.IO  (안정적 playerKey 식별 + 재연결 지원)
 // ─────────────────────────────────────────────────────────────
 const path = require("path");
 const http = require("http");
@@ -14,6 +14,7 @@ const io = new Server(server);
 app.use(express.static(path.join(__dirname, "public")));
 
 const PORT = process.env.PORT || 3000;
+const GRACE_MS = 40000; // 재연결 유예 시간
 
 // ── 제시어 은행 ────────────────────────────────────────────────
 const WORD_BANK = {
@@ -29,6 +30,7 @@ const CATEGORIES = Object.keys(WORD_BANK);
 
 // ── 방 상태 저장소 ─────────────────────────────────────────────
 const rooms = {}; // code -> room
+const socketToKey = {}; // socket.id -> { code, key }
 
 function makeRoomCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -48,6 +50,13 @@ function shuffle(arr) {
   return a;
 }
 
+function getPlayer(room, key) {
+  return room.players.find((p) => p.key === key);
+}
+function activePlayers(room) {
+  return room.players.filter((p) => p.connected);
+}
+
 // 클라이언트에 보낼 안전한 방 요약 (정답/라이어 정보 제외)
 function publicRoom(room) {
   return {
@@ -58,35 +67,25 @@ function publicRoom(room) {
     round: room.round,
     totalRounds: room.totalRounds,
     currentDrawerId: room.turnOrder ? room.turnOrder[room.currentTurnIndex] : null,
-    turnNumber: room.currentTurnIndex != null ? room.currentTurnIndex + 1 : null,
-    turnTotal: room.turnOrder ? room.turnOrder.length : null,
-    confirmedCount: room.confirmedCount,
+    confirmedCount: room.confirmedSet ? room.confirmedSet.size : 0,
     voteCount: room.votes ? Object.keys(room.votes).length : 0,
     players: room.players.map((p) => ({
-      id: p.id,
+      id: p.key,
       nickname: p.nickname,
       ready: p.ready,
       connected: p.connected,
-      isHost: p.id === room.hostId,
-      confirmed: room.confirmedSet ? room.confirmedSet.has(p.id) : false,
-      hasVoted: room.votes ? room.votes[p.id] != null : false,
+      isHost: p.key === room.hostId,
+      confirmed: room.confirmedSet ? room.confirmedSet.has(p.key) : false,
+      hasVoted: room.votes ? room.votes[p.key] != null : false,
     })),
   };
-}
-
-function activePlayers(room) {
-  return room.players.filter((p) => p.connected);
 }
 
 function broadcastRoom(room) {
   io.to(room.code).emit("roomUpdate", publicRoom(room));
 }
 
-function getPlayer(room, id) {
-  return room.players.find((p) => p.id === id);
-}
-
-// ── 게임 흐름 제어 ─────────────────────────────────────────────
+// ── 게임 흐름 ─────────────────────────────────────────────────
 function startGame(room, category) {
   const players = activePlayers(room);
   if (players.length < 3) return;
@@ -95,35 +94,31 @@ function startGame(room, category) {
   const words = WORD_BANK[room.category];
   room.word = words[Math.floor(Math.random() * words.length)];
 
-  // 라이어 한 명 랜덤 지정
   const liar = players[Math.floor(Math.random() * players.length)];
-  room.liarId = liar.id;
+  room.liarId = liar.key;
 
-  // 그리기 순서 (섞기), 2바퀴
   room.totalRounds = 2;
-  const seatOrder = shuffle(players.map((p) => p.id));
+  const seatOrder = shuffle(players.map((p) => p.key));
   room.turnOrder = [];
   for (let r = 0; r < room.totalRounds; r++) room.turnOrder.push(...seatOrder);
   room.currentTurnIndex = 0;
   room.round = 1;
 
-  room.canvasHistory = []; // 누적 그림 (한 캔버스 공유)
+  room.canvasHistory = [];
   room.confirmedSet = new Set();
-  room.confirmedCount = 0;
   room.votes = {};
+  room.pendingBreakdown = null;
+  room.lastResult = null;
   room.phase = "reveal";
 
-  // 각자에게 역할 개별 전송
-  room.players.forEach((p) => {
-    if (!p.connected) return;
-    if (p.id === room.liarId) {
-      io.to(p.socketId).emit("yourRole", { isLiar: true, category: room.category, word: null });
-    } else {
-      io.to(p.socketId).emit("yourRole", { isLiar: false, category: room.category, word: room.word });
-    }
-  });
-
+  room.players.forEach((p) => sendRole(room, p));
   broadcastRoom(room);
+}
+
+function sendRole(room, p) {
+  if (!p.connected || !p.socketId) return;
+  if (p.key === room.liarId) io.to(p.socketId).emit("yourRole", { isLiar: true, category: room.category, word: null });
+  else io.to(p.socketId).emit("yourRole", { isLiar: false, category: room.category, word: room.word });
 }
 
 function beginDrawing(room) {
@@ -144,19 +139,14 @@ function announceTurn(room) {
     drawerName: drawer ? drawer.nickname : "?",
     round: room.round,
     totalRounds: room.totalRounds,
-    turnNumber: room.currentTurnIndex + 1,
-    turnTotal: room.turnOrder.length,
   });
   broadcastRoom(room);
 }
 
 function nextTurn(room) {
   room.currentTurnIndex++;
-  if (room.currentTurnIndex >= room.turnOrder.length) {
-    beginVoting(room);
-  } else {
-    announceTurn(room);
-  }
+  if (room.currentTurnIndex >= room.turnOrder.length) beginVoting(room);
+  else announceTurn(room);
 }
 
 function beginVoting(room) {
@@ -168,52 +158,35 @@ function beginVoting(room) {
 
 function tallyVotes(room) {
   const counts = {};
-  Object.values(room.votes).forEach((target) => {
-    counts[target] = (counts[target] || 0) + 1;
-  });
+  Object.values(room.votes).forEach((t) => (counts[t] = (counts[t] || 0) + 1));
   let max = 0;
   let leaders = [];
   Object.entries(counts).forEach(([id, c]) => {
-    if (c > max) {
-      max = c;
-      leaders = [id];
-    } else if (c === max) {
-      leaders.push(id);
-    }
+    if (c > max) { max = c; leaders = [id]; }
+    else if (c === max) leaders.push(id);
   });
 
   const breakdown = room.players
-    .filter((p) => counts[p.id])
-    .map((p) => ({ id: p.id, nickname: p.nickname, votes: counts[p.id] }))
+    .filter((p) => counts[p.key])
+    .map((p) => ({ id: p.key, nickname: p.nickname, votes: counts[p.key] }))
     .sort((a, b) => b.votes - a.votes);
 
-  // 동점이면 시민들이 라이어 특정 실패 → 라이어 승
   if (leaders.length !== 1) {
     finishGame(room, { accusedId: null, tie: true, winner: "liar", breakdown });
     return;
   }
-
   const accusedId = leaders[0];
   if (accusedId === room.liarId) {
-    // 라이어 지목됨 → 정답 맞추기 기회
     room.phase = "liarGuess";
     room.pendingBreakdown = breakdown;
     const liar = getPlayer(room, room.liarId);
-    const options = shuffle(WORD_BANK[room.category]).slice(0, 6);
-    if (!options.includes(room.word)) {
-      options[Math.floor(Math.random() * options.length)] = room.word;
-    }
-    io.to(room.code).emit("liarCaught", {
-      liarId: room.liarId,
-      liarName: liar ? liar.nickname : "?",
-      breakdown,
-    });
-    if (liar && liar.connected) {
-      io.to(liar.socketId).emit("liarGuessPrompt", { options: shuffle(options) });
-    }
+    let options = shuffle(WORD_BANK[room.category]).slice(0, 6);
+    if (!options.includes(room.word)) options[Math.floor(Math.random() * options.length)] = room.word;
+    room.liarOptions = shuffle(options);
+    io.to(room.code).emit("liarCaught", { liarId: room.liarId, liarName: liar ? liar.nickname : "?", breakdown });
+    if (liar && liar.connected && liar.socketId) io.to(liar.socketId).emit("liarGuessPrompt", { options: room.liarOptions });
     broadcastRoom(room);
   } else {
-    // 시민이 지목됨 → 라이어 최종 승리
     finishGame(room, { accusedId, tie: false, winner: "liar", breakdown });
   }
 }
@@ -221,8 +194,8 @@ function tallyVotes(room) {
 function finishGame(room, result) {
   room.phase = "result";
   const liar = getPlayer(room, room.liarId);
-  io.to(room.code).emit("gameResult", {
-    winner: result.winner, // "liar" | "citizens"
+  const payload = {
+    winner: result.winner,
     word: room.word,
     category: room.category,
     liarId: room.liarId,
@@ -231,190 +204,244 @@ function finishGame(room, result) {
     tie: !!result.tie,
     liarGuess: result.liarGuess || null,
     breakdown: result.breakdown || room.pendingBreakdown || [],
-  });
+  };
+  room.lastResult = payload;
+  io.to(room.code).emit("gameResult", payload);
   broadcastRoom(room);
 }
 
 function resetToLobby(room) {
   room.phase = "lobby";
-  room.category = null;
-  room.word = null;
-  room.liarId = null;
-  room.turnOrder = null;
-  room.currentTurnIndex = null;
-  room.round = null;
-  room.canvasHistory = [];
-  room.confirmedSet = new Set();
-  room.confirmedCount = 0;
-  room.votes = {};
-  room.pendingBreakdown = null;
+  room.category = null; room.word = null; room.liarId = null;
+  room.turnOrder = null; room.currentTurnIndex = null; room.round = null;
+  room.canvasHistory = []; room.confirmedSet = new Set(); room.votes = {};
+  room.pendingBreakdown = null; room.lastResult = null; room.liarOptions = null;
   room.players.forEach((p) => (p.ready = false));
   io.to(room.code).emit("returnedToLobby");
   broadcastRoom(room);
 }
 
+// 재연결한 소켓에게 현재 상태 다시 보내주기
+function resync(room, p) {
+  const s = p.socketId;
+  if (!s) return;
+  io.to(s).emit("roomUpdate", publicRoom(room));
+  if (room.phase === "reveal") {
+    sendRole(room, p);
+  } else if (room.phase === "drawing") {
+    sendRole(room, p);
+    const drawer = getPlayer(room, room.turnOrder[room.currentTurnIndex]);
+    io.to(s).emit("turnUpdate", {
+      currentDrawerId: room.turnOrder[room.currentTurnIndex],
+      drawerName: drawer ? drawer.nickname : "?",
+      round: room.round, totalRounds: room.totalRounds,
+    });
+    io.to(s).emit("canvasHistory", room.canvasHistory || []);
+  } else if (room.phase === "voting") {
+    io.to(s).emit("votingStart");
+  } else if (room.phase === "liarGuess") {
+    const liar = getPlayer(room, room.liarId);
+    io.to(s).emit("liarCaught", { liarId: room.liarId, liarName: liar ? liar.nickname : "?", breakdown: room.pendingBreakdown || [] });
+    if (p.key === room.liarId && room.liarOptions) io.to(s).emit("liarGuessPrompt", { options: room.liarOptions });
+  } else if (room.phase === "result" && room.lastResult) {
+    io.to(s).emit("gameResult", room.lastResult);
+  }
+}
+
 // ── 소켓 이벤트 ───────────────────────────────────────────────
 io.on("connection", (socket) => {
-  let currentRoom = null;
-  let playerId = null;
+  function err(message) { socket.emit("errorMsg", { message }); }
 
-  function err(message) {
-    socket.emit("errorMsg", { message });
+  function bind(room, key) {
+    socketToKey[socket.id] = { code: room.code, key };
+    socket.join(room.code);
   }
 
-  socket.on("createRoom", ({ nickname }) => {
+  // 방 만들기 / 참가 / 재연결을 하나로 처리
+  function enter({ nickname, roomCode, playerKey, mode }) {
     nickname = (nickname || "").trim().slice(0, 12);
-    if (!nickname) return err("닉네임을 입력해 주세요.");
-    const code = makeRoomCode();
-    playerId = socket.id;
-    const room = {
-      code,
-      hostId: playerId,
-      phase: "lobby",
-      players: [{ id: playerId, socketId: socket.id, nickname, ready: false, connected: true }],
-      canvasHistory: [],
-    };
-    rooms[code] = room;
-    currentRoom = room;
-    socket.join(code);
-    socket.emit("joined", { roomCode: code, playerId });
-    broadcastRoom(room);
-  });
+    playerKey = (playerKey || "").trim();
+    if (!playerKey) return err("연결에 문제가 있어요. 새로고침해 주세요.");
 
-  socket.on("joinRoom", ({ nickname, roomCode }) => {
-    nickname = (nickname || "").trim().slice(0, 12);
-    roomCode = (roomCode || "").trim().toUpperCase();
-    if (!nickname) return err("닉네임을 입력해 주세요.");
-    const room = rooms[roomCode];
-    if (!room) return err("그런 방이 없어요. 코드를 확인해 주세요.");
-    if (room.phase !== "lobby") return err("이미 게임이 진행 중인 방이에요.");
-    if (room.players.filter((p) => p.connected).length >= 10) return err("방이 가득 찼어요 (최대 10명).");
-    if (room.players.some((p) => p.connected && p.nickname === nickname))
-      return err("같은 닉네임이 이미 있어요.");
-
-    playerId = socket.id;
-    room.players.push({ id: playerId, socketId: socket.id, nickname, ready: false, connected: true });
-    currentRoom = room;
-    socket.join(roomCode);
-    socket.emit("joined", { roomCode, playerId });
-    broadcastRoom(room);
-  });
-
-  socket.on("toggleReady", () => {
-    if (!currentRoom || currentRoom.phase !== "lobby") return;
-    const p = getPlayer(currentRoom, playerId);
-    if (p) p.ready = !p.ready;
-    broadcastRoom(currentRoom);
-  });
-
-  socket.on("startGame", ({ category }) => {
-    if (!currentRoom || currentRoom.phase !== "lobby") return;
-    if (playerId !== currentRoom.hostId) return err("방장만 시작할 수 있어요.");
-    const players = activePlayers(currentRoom);
-    if (players.length < 3) return err("최소 3명이 필요해요.");
-    if (!players.every((p) => p.ready || p.id === currentRoom.hostId))
-      return err("모두 READY 해야 시작할 수 있어요.");
-    startGame(currentRoom, category);
-  });
-
-  socket.on("confirmWord", () => {
-    if (!currentRoom || currentRoom.phase !== "reveal") return;
-    currentRoom.confirmedSet.add(playerId);
-    currentRoom.confirmedCount = currentRoom.confirmedSet.size;
-    broadcastRoom(currentRoom);
-    if (currentRoom.confirmedCount >= activePlayers(currentRoom).length) {
-      beginDrawing(currentRoom);
-    }
-  });
-
-  // 실시간 그림: 현재 차례 플레이어만 그릴 수 있음
-  socket.on("draw", (seg) => {
-    if (!currentRoom || currentRoom.phase !== "drawing") return;
-    if (currentRoom.turnOrder[currentRoom.currentTurnIndex] !== playerId) return;
-    currentRoom.canvasHistory.push(seg);
-    socket.to(currentRoom.code).emit("draw", seg);
-  });
-
-  socket.on("endTurn", () => {
-    if (!currentRoom || currentRoom.phase !== "drawing") return;
-    if (currentRoom.turnOrder[currentRoom.currentTurnIndex] !== playerId) return;
-    nextTurn(currentRoom);
-  });
-
-  socket.on("requestCanvas", () => {
-    if (!currentRoom) return;
-    socket.emit("canvasHistory", currentRoom.canvasHistory || []);
-  });
-
-  socket.on("vote", ({ targetId }) => {
-    if (!currentRoom || currentRoom.phase !== "voting") return;
-    if (!getPlayer(currentRoom, targetId)) return;
-    currentRoom.votes[playerId] = targetId;
-    broadcastRoom(currentRoom);
-    if (Object.keys(currentRoom.votes).length >= activePlayers(currentRoom).length) {
-      tallyVotes(currentRoom);
-    }
-  });
-
-  socket.on("liarGuess", ({ guess }) => {
-    if (!currentRoom || currentRoom.phase !== "liarGuess") return;
-    if (playerId !== currentRoom.liarId) return;
-    const correct = guess === currentRoom.word;
-    finishGame(currentRoom, {
-      accusedId: currentRoom.liarId,
-      winner: correct ? "liar" : "citizens",
-      liarGuess: guess,
-      breakdown: currentRoom.pendingBreakdown,
-    });
-  });
-
-  socket.on("playAgain", () => {
-    if (!currentRoom) return;
-    if (playerId !== currentRoom.hostId) return err("방장만 다시 시작할 수 있어요.");
-    resetToLobby(currentRoom);
-  });
-
-  socket.on("leaveRoom", () => handleLeave());
-
-  socket.on("disconnect", () => handleLeave());
-
-  function handleLeave() {
-    if (!currentRoom) return;
-    const room = currentRoom;
-    const p = getPlayer(room, playerId);
-    if (p) p.connected = false;
-
-    const remaining = activePlayers(room);
-    if (remaining.length === 0) {
-      delete rooms[room.code];
-      currentRoom = null;
+    if (mode === "create") {
+      if (!nickname) return err("닉네임을 입력해 주세요.");
+      const code = makeRoomCode();
+      const room = { code, hostId: playerKey, phase: "lobby", players: [], canvasHistory: [] };
+      rooms[code] = room;
+      room.players.push({ key: playerKey, socketId: socket.id, nickname, ready: false, connected: true });
+      bind(room, playerKey);
+      socket.emit("joined", { roomCode: code, playerId: playerKey });
+      broadcastRoom(room);
       return;
     }
 
-    // 방장이 나가면 다음 사람에게 위임
-    if (room.hostId === playerId) {
-      room.hostId = remaining[0].id;
+    // join 또는 rejoin
+    roomCode = (roomCode || "").trim().toUpperCase();
+    const room = rooms[roomCode];
+    if (!room) return socket.emit("rejoinFailed", { message: "그런 방이 없어요. 코드를 확인해 주세요." });
+
+    const existing = getPlayer(room, playerKey);
+    if (existing) {
+      // 재연결: 기존 자리 복구
+      if (existing.disconnectTimer) { clearTimeout(existing.disconnectTimer); existing.disconnectTimer = null; }
+      existing.socketId = socket.id;
+      existing.connected = true;
+      if (nickname) existing.nickname = nickname;
+      bind(room, playerKey);
+      socket.emit("joined", { roomCode: room.code, playerId: playerKey });
+      resync(room, existing);
+      broadcastRoom(room);
+      return;
     }
 
-    // 게임 도중 이탈 처리
-    if (room.phase !== "lobby" && room.phase !== "result") {
-      if (remaining.length < 2) {
-        io.to(room.code).emit("gameAborted", { reason: "인원이 부족해 게임을 종료했어요." });
-        resetToLobby(room);
-      } else if (room.phase === "drawing" && room.turnOrder[room.currentTurnIndex] === playerId) {
-        // 현재 그리는 사람이 나감 → 다음 차례로
-        nextTurn(room);
-      } else if (room.phase === "reveal") {
-        if (room.confirmedSet.size >= remaining.length) beginDrawing(room);
-      } else if (room.phase === "voting") {
-        if (Object.keys(room.votes).length >= remaining.length) tallyVotes(room);
-      }
-    }
+    // 새 참가는 대기실에서만
+    if (room.phase !== "lobby") return socket.emit("rejoinFailed", { message: "이미 게임이 진행 중인 방이에요." });
+    if (activePlayers(room).length >= 10) return err("방이 가득 찼어요 (최대 10명).");
+    if (!nickname) return err("닉네임을 입력해 주세요.");
+    if (room.players.some((p) => p.connected && p.nickname === nickname)) return err("같은 닉네임이 이미 있어요.");
 
+    room.players.push({ key: playerKey, socketId: socket.id, nickname, ready: false, connected: true });
+    bind(room, playerKey);
+    socket.emit("joined", { roomCode: room.code, playerId: playerKey });
     broadcastRoom(room);
-    currentRoom = null;
+  }
+
+  function ctx() {
+    const info = socketToKey[socket.id];
+    if (!info) return null;
+    const room = rooms[info.code];
+    if (!room) return null;
+    return { room, key: info.key };
+  }
+
+  socket.on("createRoom", (d) => enter({ ...d, mode: "create" }));
+  socket.on("joinRoom", (d) => enter({ ...d, mode: "join" }));
+  socket.on("rejoinRoom", (d) => enter({ ...d, mode: "join" }));
+
+  socket.on("toggleReady", () => {
+    const c = ctx(); if (!c || c.room.phase !== "lobby") return;
+    const p = getPlayer(c.room, c.key);
+    if (p) p.ready = !p.ready;
+    broadcastRoom(c.room);
+  });
+
+  socket.on("startGame", ({ category } = {}) => {
+    const c = ctx(); if (!c || c.room.phase !== "lobby") return;
+    if (c.key !== c.room.hostId) return err("방장만 시작할 수 있어요.");
+    const players = activePlayers(c.room);
+    if (players.length < 3) return err("최소 3명이 필요해요.");
+    if (!players.every((p) => p.ready || p.key === c.room.hostId)) return err("모두 READY 해야 시작할 수 있어요.");
+    startGame(c.room, category);
+  });
+
+  socket.on("confirmWord", () => {
+    const c = ctx(); if (!c || c.room.phase !== "reveal") return;
+    c.room.confirmedSet.add(c.key);
+    broadcastRoom(c.room);
+    if (c.room.confirmedSet.size >= activePlayers(c.room).length) beginDrawing(c.room);
+  });
+
+  socket.on("draw", (seg) => {
+    const c = ctx(); if (!c || c.room.phase !== "drawing") return;
+    if (c.room.turnOrder[c.room.currentTurnIndex] !== c.key) return;
+    c.room.canvasHistory.push(seg);
+    socket.to(c.room.code).emit("draw", seg);
+  });
+
+  socket.on("endTurn", () => {
+    const c = ctx(); if (!c || c.room.phase !== "drawing") return;
+    if (c.room.turnOrder[c.room.currentTurnIndex] !== c.key) return;
+    nextTurn(c.room);
+  });
+
+  socket.on("requestCanvas", () => {
+    const c = ctx(); if (!c) return;
+    socket.emit("canvasHistory", c.room.canvasHistory || []);
+  });
+
+  socket.on("vote", ({ targetId } = {}) => {
+    const c = ctx(); if (!c || c.room.phase !== "voting") return;
+    if (!getPlayer(c.room, targetId)) return;
+    c.room.votes[c.key] = targetId;
+    broadcastRoom(c.room);
+    if (Object.keys(c.room.votes).length >= activePlayers(c.room).length) tallyVotes(c.room);
+  });
+
+  socket.on("liarGuess", ({ guess } = {}) => {
+    const c = ctx(); if (!c || c.room.phase !== "liarGuess") return;
+    if (c.key !== c.room.liarId) return;
+    const correct = guess === c.room.word;
+    finishGame(c.room, { accusedId: c.room.liarId, winner: correct ? "liar" : "citizens", liarGuess: guess, breakdown: c.room.pendingBreakdown });
+  });
+
+  socket.on("playAgain", () => {
+    const c = ctx(); if (!c) return;
+    if (c.key !== c.room.hostId) return err("방장만 다시 시작할 수 있어요.");
+    resetToLobby(c.room);
+  });
+
+  socket.on("leaveRoom", () => {
+    const c = ctx(); if (!c) return;
+    removeNow(c.room, c.key);
+    delete socketToKey[socket.id];
+  });
+
+  socket.on("disconnect", () => {
+    const info = socketToKey[socket.id];
+    if (!info) return;
+    delete socketToKey[socket.id];
+    const room = rooms[info.code];
+    if (!room) return;
+    const p = getPlayer(room, info.key);
+    if (!p || p.socketId !== socket.id) return; // 이미 다른 소켓으로 재연결됨
+    p.connected = false;
+    p.socketId = null;
+
+    // 게임 진행 중이라면 즉시 흐름 보정 (유예와 별개)
+    handleInGameDrop(room, info.key);
+    broadcastRoom(room);
+
+    // 유예 시간 후에도 안 돌아오면 제거
+    p.disconnectTimer = setTimeout(() => {
+      const still = getPlayer(room, info.key);
+      if (!still || still.connected) return;
+      removeNow(room, info.key);
+    }, GRACE_MS);
+  });
+
+  function handleInGameDrop(room, key) {
+    if (room.phase === "lobby" || room.phase === "result") return;
+    const remaining = activePlayers(room);
+    if (remaining.length < 2) {
+      io.to(room.code).emit("gameAborted", { reason: "인원이 부족해 게임을 종료했어요." });
+      resetToLobby(room);
+    } else if (room.phase === "drawing" && room.turnOrder[room.currentTurnIndex] === key) {
+      nextTurn(room);
+    } else if (room.phase === "reveal") {
+      if (room.confirmedSet.size >= remaining.length) beginDrawing(room);
+    } else if (room.phase === "voting") {
+      if (Object.keys(room.votes).length >= remaining.length) tallyVotes(room);
+    }
   }
 });
+
+function removeNow(room, key) {
+  const p = getPlayer(room, key);
+  if (p && p.disconnectTimer) clearTimeout(p.disconnectTimer);
+  room.players = room.players.filter((x) => x.key !== key);
+
+  if (room.players.length === 0) { delete rooms[room.code]; return; }
+  const remaining = activePlayers(room);
+  if (remaining.length === 0) { delete rooms[room.code]; return; }
+  if (room.hostId === key) room.hostId = remaining[0].key;
+
+  if (room.phase !== "lobby" && room.phase !== "result" && remaining.length < 2) {
+    io.to(room.code).emit("gameAborted", { reason: "인원이 부족해 게임을 종료했어요." });
+    resetToLobby(room);
+    return;
+  }
+  broadcastRoom(room);
+}
 
 server.listen(PORT, () => {
   console.log(`\n🎨  라이어 그림 게임 서버 실행 중`);
