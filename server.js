@@ -20,13 +20,18 @@ const MAX_STROKES = 3;   // 한 턴에 그릴 수 있는 획 수
 
 // ── 제시어 은행 ────────────────────────────────────────────────
 const WORD_BANK = {
-  "동물": ["코끼리", "기린", "펭귄", "판다", "사자", "고래", "다람쥐", "부엉이", "악어", "캥거루", "고슴도치", "문어"],
-  "음식": ["김치찌개", "피자", "떡볶이", "초밥", "햄버거", "라면", "치킨", "삼겹살", "비빔밥", "아이스크림", "탕수육", "김밥"],
-  "영화": ["타이타닉", "어벤져스", "겨울왕국", "기생충", "인터스텔라", "라이온킹", "해리포터", "명량", "알라딘", "인셉션"],
-  "직업": ["의사", "소방관", "요리사", "경찰", "가수", "화가", "선생님", "운동선수", "우주비행사", "미용사", "판사", "농부"],
-  "장소": ["학교", "병원", "놀이공원", "해수욕장", "도서관", "공항", "동물원", "찜질방", "노래방", "캠핑장", "박물관", "카페"],
-  "물건": ["우산", "안경", "자전거", "냉장고", "핸드폰", "칫솔", "시계", "가위", "베개", "선풍기", "지갑", "청소기"],
-  "스포츠": ["축구", "농구", "야구", "수영", "태권도", "볼링", "스키", "테니스", "양궁", "골프", "배드민턴", "복싱"],
+  "동물": ["코끼리", "기린", "펭귄", "판다", "사자", "고래", "다람쥐", "부엉이", "악어", "캥거루", "고슴도치", "문어", "얼룩말", "코알라", "너구리", "카멜레온", "해파리", "치타", "돌고래", "햄스터"],
+  "음식": ["김치찌개", "피자", "떡볶이", "초밥", "햄버거", "라면", "치킨", "삼겹살", "비빔밥", "아이스크림", "탕수육", "김밥", "짜장면", "돈까스", "만두", "핫도그", "파스타", "붕어빵", "타코", "샌드위치"],
+  "영화": ["타이타닉", "어벤져스", "겨울왕국", "기생충", "인터스텔라", "라이온킹", "해리포터", "명량", "알라딘", "인셉션", "스파이더맨", "조커", "토이스토리", "쥬라기공원", "미녀와야수", "슈렉", "겨울왕국2"],
+  "직업": ["의사", "소방관", "요리사", "경찰", "가수", "화가", "선생님", "운동선수", "우주비행사", "미용사", "판사", "농부", "군인", "파일럿", "간호사", "개그맨", "프로그래머", "바리스타", "사진작가", "택배기사"],
+  "장소": ["학교", "병원", "놀이공원", "해수욕장", "도서관", "공항", "동물원", "찜질방", "노래방", "캠핑장", "박물관", "카페", "지하철역", "편의점", "영화관", "수족관", "미용실", "체육관", "주유소", "은행"],
+  "물건": ["우산", "안경", "자전거", "냉장고", "핸드폰", "칫솔", "시계", "가위", "베개", "선풍기", "지갑", "청소기", "드라이기", "리모컨", "전자레인지", "빗자루", "돋보기", "손전등", "카메라", "믹서기"],
+  "스포츠": ["축구", "농구", "야구", "수영", "태권도", "볼링", "스키", "테니스", "양궁", "골프", "배드민턴", "복싱", "탁구", "스케이트", "펜싱", "요가", "서핑", "역도", "컬링", "클라이밍"],
+  "과일채소": ["사과", "바나나", "딸기", "수박", "포도", "당근", "오이", "토마토", "가지", "양파", "옥수수", "파인애플", "브로콜리", "고구마", "레몬", "복숭아", "감자", "버섯"],
+  "탈것": ["버스", "기차", "비행기", "배", "헬리콥터", "오토바이", "택시", "구급차", "소방차", "잠수함", "열기구", "트럭", "지하철", "경운기", "요트", "케이블카"],
+  "자연": ["무지개", "화산", "폭포", "번개", "눈사람", "태풍", "섬", "사막", "빙산", "동굴", "별똥별", "오로라", "해바라기", "선인장", "단풍", "고드름"],
+  "악기": ["피아노", "기타", "드럼", "바이올린", "트럼펫", "플루트", "하프", "장구", "북", "실로폰", "하모니카", "색소폰", "탬버린", "첼로"],
+  "캐릭터": ["뽀로로", "피카츄", "미키마우스", "도라에몽", "짱구", "헬로키티", "스폰지밥", "슈퍼마리오", "곰돌이푸", "티라노사우루스", "산타클로스", "인어공주", "슈퍼맨", "배트맨"],
 };
 const CATEGORIES = Object.keys(WORD_BANK);
 
@@ -66,6 +71,9 @@ function publicRoom(room) {
     hostId: room.hostId,
     phase: room.phase,
     category: room.category,
+    selectedCategory: room.selectedCategory || null,
+    categories: CATEGORIES,
+    snaps: room.snapLen || {},
     round: room.round,
     totalRounds: room.totalRounds,
     currentDrawerId: room.turnOrder ? room.turnOrder[room.currentTurnIndex] : null,
@@ -116,6 +124,7 @@ function startGame(room, category) {
   room.round = 1;
 
   room.canvasHistory = [];
+  room.snapLen = {};
   room.confirmedSet = new Set();
   room.votes = {};
   room.pendingBreakdown = null;
@@ -144,11 +153,19 @@ function clearTurnTimer(room) {
   if (room.turnTimer) { clearTimeout(room.turnTimer); room.turnTimer = null; }
 }
 
+function turnMeta(room) {
+  const seatCount = Math.max(1, Math.round(room.turnOrder.length / room.totalRounds));
+  const order = room.turnOrder.slice(0, seatCount); // 고유 그리기 순서(키)
+  const idx = room.currentTurnIndex;
+  const nextDrawerId = idx + 1 < room.turnOrder.length ? room.turnOrder[idx + 1] : null;
+  return { order, seatCount, nextDrawerId };
+}
+
 function announceTurn(room) {
   const drawerId = room.turnOrder[room.currentTurnIndex];
   const drawer = getPlayer(room, drawerId);
-  const n = activePlayers(room).length || 1;
-  room.round = Math.floor(room.currentTurnIndex / n) + 1;
+  const { order, seatCount, nextDrawerId } = turnMeta(room);
+  room.round = Math.floor(room.currentTurnIndex / seatCount) + 1;
 
   // 이 턴 상태 초기화
   clearTurnTimer(room);
@@ -162,9 +179,13 @@ function announceTurn(room) {
     }
   }, TURN_SECONDS * 1000);
 
+  const next = nextDrawerId ? getPlayer(room, nextDrawerId) : null;
   io.to(room.code).emit("turnUpdate", {
     currentDrawerId: drawerId,
     drawerName: drawer ? drawer.nickname : "?",
+    nextDrawerId,
+    nextDrawerName: next ? next.nickname : null,
+    order,
     round: room.round,
     totalRounds: room.totalRounds,
     deadline: room.turnDeadline,
@@ -176,6 +197,10 @@ function announceTurn(room) {
 
 function nextTurn(room) {
   clearTurnTimer(room);
+  // 방금 그린 사람이 '마지막으로 그린 화면' = 지금까지의 캔버스 상태
+  const finishedKey = room.turnOrder[room.currentTurnIndex];
+  if (!room.snapLen) room.snapLen = {};
+  if (finishedKey != null) room.snapLen[finishedKey] = room.canvasHistory.length;
   room.currentTurnIndex++;
   if (room.currentTurnIndex >= room.turnOrder.length) beginVoting(room);
   else announceTurn(room);
@@ -249,7 +274,7 @@ function resetToLobby(room) {
   room.phase = "lobby";
   room.category = null; room.word = null; room.liarId = null;
   room.turnOrder = null; room.currentTurnIndex = null; room.round = null;
-  room.canvasHistory = []; room.confirmedSet = new Set(); room.votes = {};
+  room.canvasHistory = []; room.snapLen = {}; room.confirmedSet = new Set(); room.votes = {};
   room.pendingBreakdown = null; room.lastResult = null; room.liarOptions = null;
   room.players.forEach((p) => (p.ready = false));
   io.to(room.code).emit("returnedToLobby");
@@ -266,9 +291,14 @@ function resync(room, p) {
   } else if (room.phase === "drawing") {
     sendRole(room, p);
     const drawer = getPlayer(room, room.turnOrder[room.currentTurnIndex]);
+    const { order, nextDrawerId } = turnMeta(room);
+    const next = nextDrawerId ? getPlayer(room, nextDrawerId) : null;
     io.to(s).emit("turnUpdate", {
       currentDrawerId: room.turnOrder[room.currentTurnIndex],
       drawerName: drawer ? drawer.nickname : "?",
+      nextDrawerId,
+      nextDrawerName: next ? next.nickname : null,
+      order,
       round: room.round, totalRounds: room.totalRounds,
       deadline: room.turnDeadline,
       maxStrokes: MAX_STROKES,
@@ -283,6 +313,10 @@ function resync(room, p) {
     if (p.key === room.liarId && room.liarOptions) io.to(s).emit("liarGuessPrompt", { options: room.liarOptions });
   } else if (room.phase === "result" && room.lastResult) {
     io.to(s).emit("gameResult", room.lastResult);
+  }
+  // 썸네일 재현용: 그림 기록 항상 전달
+  if (room.phase !== "drawing" && room.canvasHistory && room.canvasHistory.length) {
+    io.to(s).emit("canvasHistory", room.canvasHistory);
   }
 }
 
@@ -304,7 +338,7 @@ io.on("connection", (socket) => {
     if (mode === "create") {
       if (!nickname) return err("닉네임을 입력해 주세요.");
       const code = makeRoomCode();
-      const room = { code, hostId: playerKey, phase: "lobby", players: [], canvasHistory: [], chat: [] };
+      const room = { code, hostId: playerKey, phase: "lobby", players: [], canvasHistory: [], chat: [], selectedCategory: CATEGORIES[0] };
       rooms[code] = room;
       room.players.push({ key: playerKey, socketId: socket.id, nickname, ready: false, connected: true });
       bind(room, playerKey);
@@ -368,13 +402,21 @@ io.on("connection", (socket) => {
     broadcastRoom(c.room);
   });
 
+  socket.on("selectCategory", ({ category } = {}) => {
+    const c = ctx(); if (!c || c.room.phase !== "lobby") return;
+    if (c.key !== c.room.hostId) return; // 방장만 변경
+    if (!WORD_BANK[category]) return;
+    c.room.selectedCategory = category;
+    broadcastRoom(c.room);
+  });
+
   socket.on("startGame", ({ category } = {}) => {
     const c = ctx(); if (!c || c.room.phase !== "lobby") return;
     if (c.key !== c.room.hostId) return err("방장만 시작할 수 있어요.");
     const players = activePlayers(c.room);
     if (players.length < 3) return err("최소 3명이 필요해요.");
     if (!players.every((p) => p.ready || p.key === c.room.hostId)) return err("모두 READY 해야 시작할 수 있어요.");
-    startGame(c.room, category);
+    startGame(c.room, category || c.room.selectedCategory);
   });
 
   socket.on("confirmWord", () => {

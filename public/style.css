@@ -38,7 +38,7 @@ html, body {
 .screen {
   display: none;
   min-height: 100%;
-  padding: 28px 20px 40px;
+  padding: 28px 20px 44px;
   align-items: flex-start;
   justify-content: center;
 }
@@ -175,6 +175,9 @@ html, body {
   cursor: pointer; box-shadow: var(--shadow-sm);
 }
 .chip.selected { background: var(--purple); color: #fff; }
+.chip.locked { cursor: default; }
+.chip.locked:not(.selected) { opacity: 0.55; }
+.chip.locked.selected { box-shadow: var(--shadow-sm); }
 .big-chips .chip { font-size: 1.15rem; padding: 12px 20px; }
 
 .host-controls { display: flex; flex-direction: column; gap: 6px; align-items: center; }
@@ -203,7 +206,7 @@ html, body {
 .wait-text { text-align: center; font-family: "Gaegu"; font-size: 1.15rem; color: #7c7b86; }
 
 /* ── 그리기 화면 ── */
-.draw-screen { display: none; flex-direction: column; padding: 10px 12px 14px; }
+.draw-screen { display: none; flex-direction: column; padding: 10px 12px 16px; }
 .draw-screen.active { display: flex; }
 .draw-header { width: 100%; max-width: 1000px; margin: 0 auto 8px; display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
 .turn-info { display: flex; align-items: center; gap: 10px; }
@@ -219,6 +222,38 @@ html, body {
   border-radius: 999px; background: #fff; box-shadow: var(--shadow-sm); white-space: nowrap;
 }
 .my-word.liar { background: var(--red); color: #fff; }
+
+/* ── 참가자 순서 + 이전 그림 미리보기 ── */
+.draw-sub {
+  width: 100%; max-width: 1000px; margin: 0 auto 8px;
+  display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap;
+}
+.roster { flex: 1; min-width: 200px; display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start; }
+.roster-chip {
+  display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 0.85rem;
+  background: #fff; border: 2px solid var(--ink); border-radius: 999px; padding: 3px 10px 3px 4px;
+  box-shadow: 2px 2px 0 var(--ink);
+}
+.roster-chip .avatar { width: 24px; height: 24px; font-size: 0.75rem; border-width: 2px; }
+.roster-chip .seat { font-family: "Jua"; color: #b0afb8; margin: 0 1px 0 3px; }
+.roster-chip .tag { font-family: "Jua"; font-size: 0.72rem; padding: 1px 7px; border-radius: 999px; border: 2px solid var(--ink); }
+.roster-chip.now { background: var(--green); color: #fff; animation: pulse 1s infinite; }
+.roster-chip.now .tag { background: #fff; color: var(--ink); }
+.roster-chip.next { background: var(--yellow); }
+.roster-chip.next .tag { background: var(--ink); color: #fff; }
+.roster-chip.offline { opacity: 0.4; }
+
+.prev-preview { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.prev-label { font-family: "Gaegu", cursive; font-size: 0.85rem; color: #7c7b86; }
+.prev-canvas-wrap { position: relative; }
+#prev-canvas {
+  width: 150px; height: 105px; display: block; background: #fff;
+  border: 3px solid var(--ink); border-radius: 10px; box-shadow: 2px 2px 0 var(--ink);
+}
+.prev-empty {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  font-family: "Gaegu", cursive; color: #bbb; font-size: 0.95rem; pointer-events: none;
+}
 
 .canvas-wrap {
   position: relative; width: 100%; max-width: 1000px; margin: 0 auto;
@@ -283,62 +318,100 @@ html, body {
 
 .hidden { display: none !important; }
 
-/* ── 채팅창 ── */
-.chat-dock {
-  position: fixed; right: 12px; bottom: 12px; z-index: 80;
-  width: min(340px, calc(100vw - 24px));
-  background: #fff; border: 3px solid var(--ink); border-radius: 16px;
+/* ── 왼쪽 플레이어 패널 ── */
+.players-dock {
+  position: fixed; top: 12px; left: 12px; bottom: 12px; z-index: 80;
+  width: min(220px, calc(100vw - 24px));
+  background: #fff; border: 3px solid var(--ink); border-radius: 18px;
   box-shadow: var(--shadow); overflow: hidden; display: flex; flex-direction: column;
 }
+.players-dock.collapsed { bottom: auto; }
+.pd-head {
+  display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none;
+  padding: 12px 14px; background: var(--purple); color: #fff; border-bottom: 3px solid var(--ink);
+}
+.pd-title { font-family: "Jua"; font-size: 1.1rem; flex: 1; }
+.players-dock.collapsed .pd-body { display: none; }
+.players-dock.collapsed .chat-toggle { transform: rotate(180deg); }
+.pd-body { flex: 1; min-height: 0; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
+.pd-player { border: 2px solid var(--ink); border-radius: 12px; padding: 6px; background: #fffdf5; box-shadow: 2px 2px 0 var(--ink); }
+.pd-player.now { background: #eafff8; border-color: var(--green); }
+.pd-player.offline { opacity: 0.45; }
+.pd-row { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; }
+.pd-row .avatar { width: 22px; height: 22px; font-size: 0.72rem; border-width: 2px; }
+.pd-name { font-weight: 800; font-size: 0.85rem; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pd-badge { font-family: "Jua"; font-size: 0.62rem; padding: 1px 6px; border-radius: 999px; border: 2px solid var(--ink); background: var(--green); color: #fff; }
+.pd-badge.next { background: var(--yellow); color: var(--ink); }
+.pd-thumb-wrap { position: relative; }
+.pd-thumb { width: 100%; aspect-ratio: 10 / 7; display: block; background: #fff; border: 2px solid var(--ink); border-radius: 8px; }
+.pd-empty { position: absolute; inset: 0; display: grid; place-items: center; font-family: "Gaegu", cursive; color: #bbb; font-size: 0.85rem; }
+
+/* ── 채팅창 (오른쪽 큰 세로 패널) ── */
+.chat-dock {
+  position: fixed; top: 12px; right: 12px; bottom: 12px; z-index: 80;
+  width: min(380px, calc(100vw - 24px));
+  background: #fff; border: 3px solid var(--ink); border-radius: 18px;
+  box-shadow: var(--shadow); overflow: hidden;
+  display: flex; flex-direction: column;
+}
+.chat-dock.collapsed { bottom: auto; } /* 접으면 머리 부분만 남김 */
 .chat-head {
   display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none;
-  padding: 9px 12px; background: var(--blue); color: #fff; border-bottom: 3px solid var(--ink);
+  padding: 12px 16px; background: var(--blue); color: #fff; border-bottom: 3px solid var(--ink);
 }
-.chat-title { font-family: "Jua"; font-size: 1.05rem; flex: 1; }
+.chat-title { font-family: "Jua"; font-size: 1.2rem; flex: 1; }
 .chat-unread {
-  font-family: "Jua"; font-size: 0.8rem; background: var(--red); color: #fff;
-  border: 2px solid var(--ink); border-radius: 999px; padding: 1px 8px; min-width: 22px; text-align: center;
+  font-family: "Jua"; font-size: 0.85rem; background: var(--red); color: #fff;
+  border: 2px solid var(--ink); border-radius: 999px; padding: 1px 9px; min-width: 24px; text-align: center;
 }
 .chat-toggle {
-  font-family: "Jua"; font-size: 1rem; background: #fff; color: var(--ink);
-  border: 2px solid var(--ink); border-radius: 8px; width: 26px; height: 26px; cursor: pointer; line-height: 1;
+  font-family: "Jua"; font-size: 1.1rem; background: #fff; color: var(--ink);
+  border: 2px solid var(--ink); border-radius: 8px; width: 30px; height: 30px; cursor: pointer; line-height: 1;
 }
 .chat-dock.collapsed .chat-body { display: none; }
 .chat-dock.collapsed .chat-toggle { transform: rotate(180deg); }
 
-.chat-body { display: flex; flex-direction: column; }
+.chat-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .chat-messages {
-  height: 190px; overflow-y: auto; padding: 10px 12px;
-  display: flex; flex-direction: column; gap: 7px; background: #fffdf5;
+  flex: 1; min-height: 0; overflow-y: auto; padding: 14px 16px;
+  display: flex; flex-direction: column; gap: 9px; background: #fffdf5;
 }
-.chat-msg { max-width: 82%; font-size: 0.92rem; line-height: 1.35; }
-.chat-msg .who { font-weight: 800; font-size: 0.78rem; margin: 0 0 2px 2px; display: block; }
+.chat-msg { max-width: 82%; font-size: 1rem; line-height: 1.4; }
+.chat-msg .who { font-weight: 800; font-size: 0.82rem; margin: 0 0 2px 2px; display: block; }
 .chat-msg .bubble {
-  display: inline-block; padding: 7px 11px; border: 2px solid var(--ink);
-  border-radius: 13px; background: #fff; word-break: break-word;
+  display: inline-block; padding: 9px 13px; border: 2px solid var(--ink);
+  border-radius: 14px; background: #fff; word-break: break-word;
 }
 .chat-msg.mine { align-self: flex-end; }
 .chat-msg.mine .bubble { background: var(--yellow); }
 .chat-msg.mine .who { text-align: right; margin: 0 2px 2px 0; color: #8a7a2a; }
 .chat-msg.system { align-self: center; max-width: 100%; }
 .chat-msg.system .bubble {
-  background: transparent; border: none; color: #9a99a3; font-size: 0.82rem;
+  background: transparent; border: none; color: #9a99a3; font-size: 0.88rem;
   font-family: "Gaegu", cursive; padding: 2px 6px;
 }
-.chat-input-row { display: flex; gap: 6px; padding: 8px; border-top: 3px solid var(--ink); background: #fff; }
+.chat-input-row { display: flex; gap: 8px; padding: 12px 14px; border-top: 3px solid var(--ink); background: #fff; }
 .chat-input {
-  flex: 1; font-family: "Gothic A1"; font-size: 0.95rem; font-weight: 600;
-  padding: 9px 11px; border: 2px solid var(--ink); border-radius: 11px; outline: none; background: #fffdf5;
+  flex: 1; min-width: 0; font-family: "Gothic A1"; font-size: 1.05rem; font-weight: 600;
+  padding: 12px 14px; border: 3px solid var(--ink); border-radius: 13px; outline: none; background: #fffdf5;
 }
 .chat-input:focus { box-shadow: var(--shadow-sm); }
 .chat-send {
-  font-family: "Jua"; font-size: 0.95rem; padding: 0 14px; color: #fff; background: var(--green);
-  border: 2px solid var(--ink); border-radius: 11px; cursor: pointer;
+  font-family: "Jua"; font-size: 1.05rem; padding: 0 18px; color: #fff; background: var(--green);
+  border: 3px solid var(--ink); border-radius: 13px; cursor: pointer; flex: none;
+}
+
+/* 넓은 화면: 패널이 펼쳐져 있으면 게임 화면을 밀어 안 가리게 */
+@media (min-width: 980px) {
+  body.chat-on .screen { padding-right: 408px; }
+}
+@media (min-width: 1240px) {
+  body.left-on .screen { padding-left: 248px; }
 }
 
 @media (max-width: 480px) {
-  .chat-messages { height: 150px; }
-  .chat-dock { right: 8px; bottom: 8px; }
+  .chat-dock { top: 8px; right: 8px; bottom: 8px; }
+  .chat-title { font-size: 1.05rem; }
 }
 
 @media (max-width: 480px) {

@@ -100,6 +100,7 @@ socket.on("joined", ({ roomCode: code, playerId }) => {
   $("lobby-code").textContent = code;
   setLoginEnabled(true);
   $("chat-dock").classList.remove("hidden"); // 대기방부터 채팅 표시
+  document.body.classList.add("chat-on");
 });
 
 socket.on("errorMsg", ({ message }) => { clearTimeout(joinTimer); setLoginEnabled(true); toast(message); });
@@ -129,15 +130,18 @@ function leaveToHome() {
 }
 
 let selectedCategory = null;
-const CATEGORIES = ["동물", "음식", "영화", "직업", "장소", "물건", "스포츠"];
-function renderCategoryPicker() {
+const CATEGORIES = ["동물", "음식", "영화", "직업", "장소", "물건", "스포츠", "과일채소", "탈것", "자연", "악기", "캐릭터"];
+function renderCategoryPicker(categories) {
   const box = $("category-picker");
   if (box.dataset.built) return;
   box.dataset.built = "1";
-  CATEGORIES.forEach((c) => {
+  (categories || CATEGORIES).forEach((c) => {
     const chip = document.createElement("button");
-    chip.className = "chip"; chip.textContent = c;
-    chip.onclick = () => { selectedCategory = c; [...box.children].forEach((el) => el.classList.toggle("selected", el === chip)); };
+    chip.className = "chip"; chip.textContent = c; chip.dataset.cat = c;
+    chip.onclick = () => {
+      if (!isHost()) return;            // 방장만 변경 가능
+      socket.emit("selectCategory", { category: c }); // 선택은 서버가 모두에게 전파
+    };
     box.appendChild(chip);
   });
 }
@@ -157,13 +161,16 @@ function renderLobby() {
   });
 
   const iamHost = isHost();
-  renderCategoryPicker();
-  if (!selectedCategory) {
-    selectedCategory = CATEGORIES[0];
-    const first = $("category-picker").firstChild;
-    if (first) first.classList.add("selected");
-  }
-  $("host-controls").classList.toggle("hidden", !iamHost);
+  renderCategoryPicker(state.categories);
+
+  // 서버가 알려준 선택 주제를 모두에게 동일하게 표시
+  selectedCategory = state.selectedCategory || CATEGORIES[0];
+  const box = $("category-picker");
+  [...box.children].forEach((el) => {
+    el.classList.toggle("selected", el.dataset.cat === selectedCategory);
+    el.classList.toggle("locked", !iamHost); // 방장이 아니면 보기 전용
+  });
+  $("category-label").textContent = iamHost ? "주제 고르기 (탭해서 선택)" : "주제 (방장이 선택해요)";
 
   const me = state.players.find((p) => p.id === myId);
   $("btn-ready").textContent = me && me.ready ? "READY 취소" : "READY";
@@ -180,10 +187,12 @@ function renderLobby() {
 
 socket.on("roomUpdate", (room) => {
   state = room;
+  if (room.snaps) snaps = room.snaps;
   if (room.phase === "lobby") { show("lobby"); renderLobby(); }
   else if (room.phase === "reveal") { show("reveal"); $("confirm-progress").textContent = room.confirmedCount || 0; }
   else if (room.phase === "voting") { $("vote-progress").textContent = room.voteCount || 0; renderVoteList(); }
   else if (room.phase === "drawing") { updateDrawUI(); }
+  renderPlayersDock();
 });
 
 // ── 제시어 확인 ──
@@ -284,7 +293,9 @@ function moveDraw(e) {
     seg.newStroke = true; pendingNewStroke = false;
     strokeCount++; updateStrokeInfo();
   }
-  drawSeg(seg); socket.emit("draw", seg); last = p; e.preventDefault();
+  drawSeg(seg); histLocal.push(seg); socket.emit("draw", seg);
+  scheduleLiveThumb();
+  last = p; e.preventDefault();
 }
 function endDraw() { drawing = false; pendingNewStroke = false; }
 canvas.addEventListener("mousedown", startDraw);
@@ -294,14 +305,98 @@ canvas.addEventListener("touchstart", startDraw, { passive: false });
 canvas.addEventListener("touchmove", moveDraw, { passive: false });
 canvas.addEventListener("touchend", endDraw);
 
-socket.on("draw", (seg) => drawSeg(seg));
+socket.on("draw", (seg) => { drawSeg(seg); histLocal.push(seg); scheduleLiveThumb(); });
 socket.on("canvasHistory", (history) => {
+  histLocal = (history || []).slice();
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  history.forEach(drawSeg);
+  histLocal.forEach(drawSeg);
+  renderPlayersDock();
 });
+
+// ── 왼쪽 플레이어 패널 (각자 마지막으로 그린 화면) ──
+let histLocal = [];
+let snaps = {};
+let lastTurn = null;
+const DOCK_PHASES = ["drawing", "voting", "liarGuess", "result"];
+
+function renderStrokesTo(tctx, tw, th, strokes) {
+  tctx.fillStyle = "#ffffff"; tctx.fillRect(0, 0, tw, th);
+  strokes.forEach((s) => {
+    tctx.strokeStyle = s.erase ? "#ffffff" : s.color;
+    tctx.lineWidth = Math.max(1, s.size * (tw / 1000));
+    tctx.lineCap = "round"; tctx.lineJoin = "round";
+    tctx.beginPath();
+    tctx.moveTo(s.x0 * tw, s.y0 * th); tctx.lineTo(s.x1 * tw, s.y1 * th); tctx.stroke();
+  });
+}
+
+function updatePlayersDockVisibility() {
+  const phase = state ? state.phase : null;
+  const on = DOCK_PHASES.includes(phase);
+  const dock = $("players-dock");
+  dock.classList.toggle("hidden", !on);
+  document.body.classList.toggle("left-on", on && !dock.classList.contains("collapsed"));
+}
+
+function renderPlayersDock() {
+  if (!state) return;
+  updatePlayersDockVisibility();
+  if ($("players-dock").classList.contains("hidden")) return;
+  const nextId = lastTurn ? lastTurn.nextDrawerId : null;
+  const body = $("pd-body");
+  body.innerHTML = "";
+  state.players.forEach((p) => {
+    const isNow = p.id === state.currentDrawerId;
+    const isNext = p.id === nextId;
+    // 현재 그리는 사람은 지금까지의 화면을 실시간으로, 나머지는 마지막으로 그린 시점을 표시
+    const len = isNow ? histLocal.length : snaps[p.id];
+    const hasImg = typeof len === "number" && len > 0;
+    const card = document.createElement("div");
+    card.className = "pd-player" + (isNow ? " now" : "") + (p.connected ? "" : " offline");
+    const badge = isNow ? '<span class="pd-badge">그리는 중</span>'
+      : isNext ? '<span class="pd-badge next">다음</span>' : "";
+    card.innerHTML = `
+      <div class="pd-row">
+        <span class="avatar" style="background:${avatarColor(p.id)}">${initial(p.nickname)}</span>
+        <span class="pd-name">${escapeHtml(p.nickname)}${p.id === myId ? " (나)" : ""}</span>
+        ${badge}
+      </div>
+      <div class="pd-thumb-wrap">
+        <canvas class="pd-thumb" width="200" height="140"></canvas>
+        ${hasImg ? "" : '<span class="pd-empty">아직 안 그림</span>'}
+      </div>`;
+    body.appendChild(card);
+    if (hasImg) {
+      const tc = card.querySelector(".pd-thumb");
+      renderStrokesTo(tc.getContext("2d"), tc.width, tc.height, histLocal.slice(0, len));
+    }
+  });
+}
+
+// 현재 그리는 사람 썸네일만 가볍게 실시간 갱신
+let liveThumbPending = false;
+function scheduleLiveThumb() {
+  if (liveThumbPending) return;
+  liveThumbPending = true;
+  requestAnimationFrame(() => {
+    liveThumbPending = false;
+    const tc = document.querySelector(".pd-player.now .pd-thumb");
+    if (tc) {
+      renderStrokesTo(tc.getContext("2d"), tc.width, tc.height, histLocal);
+      const empty = tc.parentElement.querySelector(".pd-empty");
+      if (empty && histLocal.length) empty.remove();
+    }
+  });
+}
+
+$("pd-head").onclick = () => {
+  $("players-dock").classList.toggle("collapsed");
+  updatePlayersDockVisibility();
+};
 
 socket.on("turnUpdate", (t) => {
   show("draw");
+  lastTurn = t;
   $("round-num").textContent = t.round;
   $("round-total").textContent = t.totalRounds;
   isMyTurn = t.currentDrawerId === myId;
@@ -313,6 +408,7 @@ socket.on("turnUpdate", (t) => {
   startCountdown();
   socket.emit("requestCanvas");
   updateDrawUI(t);
+  renderPlayersDock();
 });
 
 // 서버가 세는 획 수와 동기화 (내 화면 표시용)
@@ -432,7 +528,9 @@ function setUnread(n) {
 $("chat-head").onclick = (e) => {
   if (e.target === chatInput) return;
   chatDock.classList.toggle("collapsed");
-  if (!chatCollapsed()) { setUnread(0); chatMessages.scrollTop = chatMessages.scrollHeight; }
+  const open = !chatCollapsed();
+  document.body.classList.toggle("chat-on", open);
+  if (open) { setUnread(0); chatMessages.scrollTop = chatMessages.scrollHeight; }
 };
 
 function sendChat() {
@@ -457,8 +555,7 @@ function appendChat(m) {
     row.innerHTML = `<span class="who"${color}>${who}</span><span class="bubble">${escapeHtml(m.text)}</span>`;
   }
   chatMessages.appendChild(row);
-  const nearBottom = chatMessages.scrollHeight - chatMessages.scrollTop - chatMessages.clientHeight < 60;
-  if (nearBottom || (m.type !== "system" && m.key === myId)) chatMessages.scrollTop = chatMessages.scrollHeight;
+  chatMessages.scrollTop = chatMessages.scrollHeight; // 새 메시지는 항상 하단 표시
 }
 
 socket.on("chatHistory", (list) => {

@@ -47,8 +47,8 @@
 
       <ul id="player-list" class="player-list"></ul>
 
-      <div id="host-controls" class="host-controls hidden">
-        <label class="field-label">주제 고르기</label>
+      <div id="category-block" class="host-controls">
+        <label id="category-label" class="field-label">주제 고르기</label>
         <div id="category-picker" class="chip-row"></div>
       </div>
 
@@ -147,6 +147,15 @@
       <p id="wait-host" class="hint hidden">방장이 다시 시작하기를 기다리는 중…</p>
     </div>
   </section>
+
+  <!-- 왼쪽 플레이어 패널 (게임 중) -->
+  <div id="players-dock" class="players-dock hidden">
+    <div class="pd-head" id="pd-head">
+      <span class="pd-title">🎨 플레이어</span>
+      <button id="pd-toggle" class="chat-toggle" aria-label="접기/펴기">◂</button>
+    </div>
+    <div id="pd-body" class="pd-body"></div>
+  </div>
 
   <!-- 채팅 (대기방~게임 내내 유지) -->
   <div id="chat-dock" class="chat-dock hidden">
