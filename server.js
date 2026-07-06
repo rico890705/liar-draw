@@ -15,6 +15,8 @@ app.use(express.static(path.join(__dirname, "public")));
 
 const PORT = process.env.PORT || 3000;
 const GRACE_MS = 40000; // 재연결 유예 시간
+const TURN_SECONDS = 30; // 한 사람당 그리기 제한 시간
+const MAX_STROKES = 3;   // 한 턴에 그릴 수 있는 획 수
 
 // ── 제시어 은행 ────────────────────────────────────────────────
 const WORD_BANK = {
@@ -85,6 +87,15 @@ function broadcastRoom(room) {
   io.to(room.code).emit("roomUpdate", publicRoom(room));
 }
 
+// 채팅 메시지 저장 + 전송 (대기방/게임 어디서든 동작)
+function pushChat(room, msg) {
+  if (!room.chat) room.chat = [];
+  msg.ts = Date.now();
+  room.chat.push(msg);
+  if (room.chat.length > 80) room.chat.shift(); // 최근 80개만 보관
+  io.to(room.code).emit("chatMessage", msg);
+}
+
 // ── 게임 흐름 ─────────────────────────────────────────────────
 function startGame(room, category) {
   const players = activePlayers(room);
@@ -111,8 +122,8 @@ function startGame(room, category) {
   room.lastResult = null;
   room.phase = "reveal";
 
-  room.players.forEach((p) => sendRole(room, p));
-  broadcastRoom(room);
+  broadcastRoom(room); // 먼저 화면을 제시어 확인 단계로 전환
+  room.players.forEach((p) => sendRole(room, p)); // 그다음 각자 역할 카드 전달
 }
 
 function sendRole(room, p) {
@@ -129,27 +140,49 @@ function beginDrawing(room) {
   announceTurn(room);
 }
 
+function clearTurnTimer(room) {
+  if (room.turnTimer) { clearTimeout(room.turnTimer); room.turnTimer = null; }
+}
+
 function announceTurn(room) {
   const drawerId = room.turnOrder[room.currentTurnIndex];
   const drawer = getPlayer(room, drawerId);
   const n = activePlayers(room).length || 1;
   room.round = Math.floor(room.currentTurnIndex / n) + 1;
+
+  // 이 턴 상태 초기화
+  clearTurnTimer(room);
+  room.strokesUsed = 0;
+  room.strokeRejected = false;
+  room.turnDeadline = Date.now() + TURN_SECONDS * 1000;
+  room.turnTimer = setTimeout(() => {
+    // 시간 초과 → 자동으로 다음 사람
+    if (room.phase === "drawing" && room.turnOrder[room.currentTurnIndex] === drawerId) {
+      nextTurn(room);
+    }
+  }, TURN_SECONDS * 1000);
+
   io.to(room.code).emit("turnUpdate", {
     currentDrawerId: drawerId,
     drawerName: drawer ? drawer.nickname : "?",
     round: room.round,
     totalRounds: room.totalRounds,
+    deadline: room.turnDeadline,
+    maxStrokes: MAX_STROKES,
+    strokesUsed: 0,
   });
   broadcastRoom(room);
 }
 
 function nextTurn(room) {
+  clearTurnTimer(room);
   room.currentTurnIndex++;
   if (room.currentTurnIndex >= room.turnOrder.length) beginVoting(room);
   else announceTurn(room);
 }
 
 function beginVoting(room) {
+  clearTurnTimer(room);
   room.phase = "voting";
   room.votes = {};
   io.to(room.code).emit("votingStart");
@@ -192,6 +225,7 @@ function tallyVotes(room) {
 }
 
 function finishGame(room, result) {
+  clearTurnTimer(room);
   room.phase = "result";
   const liar = getPlayer(room, room.liarId);
   const payload = {
@@ -211,6 +245,7 @@ function finishGame(room, result) {
 }
 
 function resetToLobby(room) {
+  clearTurnTimer(room);
   room.phase = "lobby";
   room.category = null; room.word = null; room.liarId = null;
   room.turnOrder = null; room.currentTurnIndex = null; room.round = null;
@@ -235,6 +270,9 @@ function resync(room, p) {
       currentDrawerId: room.turnOrder[room.currentTurnIndex],
       drawerName: drawer ? drawer.nickname : "?",
       round: room.round, totalRounds: room.totalRounds,
+      deadline: room.turnDeadline,
+      maxStrokes: MAX_STROKES,
+      strokesUsed: room.strokesUsed || 0,
     });
     io.to(s).emit("canvasHistory", room.canvasHistory || []);
   } else if (room.phase === "voting") {
@@ -266,12 +304,14 @@ io.on("connection", (socket) => {
     if (mode === "create") {
       if (!nickname) return err("닉네임을 입력해 주세요.");
       const code = makeRoomCode();
-      const room = { code, hostId: playerKey, phase: "lobby", players: [], canvasHistory: [] };
+      const room = { code, hostId: playerKey, phase: "lobby", players: [], canvasHistory: [], chat: [] };
       rooms[code] = room;
       room.players.push({ key: playerKey, socketId: socket.id, nickname, ready: false, connected: true });
       bind(room, playerKey);
       socket.emit("joined", { roomCode: code, playerId: playerKey });
+      socket.emit("chatHistory", room.chat);
       broadcastRoom(room);
+      pushChat(room, { type: "system", text: `${nickname} 님이 방을 만들었어요` });
       return;
     }
 
@@ -289,6 +329,7 @@ io.on("connection", (socket) => {
       if (nickname) existing.nickname = nickname;
       bind(room, playerKey);
       socket.emit("joined", { roomCode: room.code, playerId: playerKey });
+      socket.emit("chatHistory", room.chat || []);
       resync(room, existing);
       broadcastRoom(room);
       return;
@@ -303,7 +344,9 @@ io.on("connection", (socket) => {
     room.players.push({ key: playerKey, socketId: socket.id, nickname, ready: false, connected: true });
     bind(room, playerKey);
     socket.emit("joined", { roomCode: room.code, playerId: playerKey });
+    socket.emit("chatHistory", room.chat || []);
     broadcastRoom(room);
+    pushChat(room, { type: "system", text: `${nickname} 님이 입장했어요` });
   }
 
   function ctx() {
@@ -344,8 +387,18 @@ io.on("connection", (socket) => {
   socket.on("draw", (seg) => {
     const c = ctx(); if (!c || c.room.phase !== "drawing") return;
     if (c.room.turnOrder[c.room.currentTurnIndex] !== c.key) return;
-    c.room.canvasHistory.push(seg);
-    socket.to(c.room.code).emit("draw", seg);
+    const room = c.room;
+    // 새 획 시작이면 획 수를 세고, 한도를 넘으면 이 획은 무시
+    if (seg && seg.newStroke) {
+      if ((room.strokesUsed || 0) >= MAX_STROKES) { room.strokeRejected = true; return; }
+      room.strokesUsed = (room.strokesUsed || 0) + 1;
+      room.strokeRejected = false;
+      io.to(room.code).emit("strokeCount", { strokesUsed: room.strokesUsed, maxStrokes: MAX_STROKES });
+    } else if (room.strokeRejected) {
+      return; // 한도 초과 획의 이어지는 선들도 무시
+    }
+    room.canvasHistory.push(seg);
+    socket.to(room.code).emit("draw", seg);
   });
 
   socket.on("endTurn", () => {
@@ -378,6 +431,15 @@ io.on("connection", (socket) => {
     const c = ctx(); if (!c) return;
     if (c.key !== c.room.hostId) return err("방장만 다시 시작할 수 있어요.");
     resetToLobby(c.room);
+  });
+
+  socket.on("chat", ({ text } = {}) => {
+    const c = ctx(); if (!c) return;
+    text = (text || "").toString().replace(/\s+/g, " ").trim().slice(0, 200);
+    if (!text) return;
+    const p = getPlayer(c.room, c.key);
+    if (!p) return;
+    pushChat(c.room, { type: "user", key: c.key, nickname: p.nickname, text });
   });
 
   socket.on("leaveRoom", () => {
@@ -428,12 +490,14 @@ io.on("connection", (socket) => {
 function removeNow(room, key) {
   const p = getPlayer(room, key);
   if (p && p.disconnectTimer) clearTimeout(p.disconnectTimer);
+  const leftName = p ? p.nickname : null;
   room.players = room.players.filter((x) => x.key !== key);
 
   if (room.players.length === 0) { delete rooms[room.code]; return; }
   const remaining = activePlayers(room);
   if (remaining.length === 0) { delete rooms[room.code]; return; }
   if (room.hostId === key) room.hostId = remaining[0].key;
+  if (leftName) pushChat(room, { type: "system", text: `${leftName} 님이 나갔어요` });
 
   if (room.phase !== "lobby" && room.phase !== "result" && remaining.length < 2) {
     io.to(room.code).emit("gameAborted", { reason: "인원이 부족해 게임을 종료했어요." });

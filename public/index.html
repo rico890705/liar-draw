@@ -86,6 +86,7 @@
     <div class="draw-header">
       <div class="turn-info">
         <span class="round-pill">Round <b id="round-num">1</b>/<span id="round-total">2</span></span>
+        <span id="timer-pill" class="timer-pill">⏱ 30</span>
         <span id="turn-status" class="turn-status">차례를 기다리는 중…</span>
       </div>
       <div id="my-word" class="my-word"></div>
@@ -97,6 +98,7 @@
     </div>
 
     <div id="tools" class="tools hidden">
+      <span id="stroke-info" class="stroke-info">남은 획 <b>3</b></span>
       <div class="palette" id="palette"></div>
       <div class="tool-group">
         <button class="tool-btn" data-size="4">가늘게</button>
@@ -145,6 +147,22 @@
       <p id="wait-host" class="hint hidden">방장이 다시 시작하기를 기다리는 중…</p>
     </div>
   </section>
+
+  <!-- 채팅 (대기방~게임 내내 유지) -->
+  <div id="chat-dock" class="chat-dock hidden">
+    <div class="chat-head" id="chat-head">
+      <span class="chat-title">💬 채팅</span>
+      <span id="chat-unread" class="chat-unread hidden">0</span>
+      <button id="chat-toggle" class="chat-toggle" aria-label="채팅 접기/펴기">▾</button>
+    </div>
+    <div id="chat-body" class="chat-body">
+      <div id="chat-messages" class="chat-messages"></div>
+      <div class="chat-input-row">
+        <input id="chat-input" class="chat-input" maxlength="200" placeholder="메시지 입력…" autocomplete="off" />
+        <button id="chat-send" class="chat-send">전송</button>
+      </div>
+    </div>
+  </div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="client.js"></script>

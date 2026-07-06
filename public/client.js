@@ -99,6 +99,7 @@ socket.on("joined", ({ roomCode: code, playerId }) => {
   sessionStorage.setItem("liarRoom", code);
   $("lobby-code").textContent = code;
   setLoginEnabled(true);
+  $("chat-dock").classList.remove("hidden"); // 대기방부터 채팅 표시
 });
 
 socket.on("errorMsg", ({ message }) => { clearTimeout(joinTimer); setLoginEnabled(true); toast(message); });
@@ -180,7 +181,7 @@ function renderLobby() {
 socket.on("roomUpdate", (room) => {
   state = room;
   if (room.phase === "lobby") { show("lobby"); renderLobby(); }
-  else if (room.phase === "reveal") { $("confirm-progress").textContent = room.confirmedCount || 0; }
+  else if (room.phase === "reveal") { show("reveal"); $("confirm-progress").textContent = room.confirmedCount || 0; }
   else if (room.phase === "voting") { $("vote-progress").textContent = room.voteCount || 0; renderVoteList(); }
   else if (room.phase === "drawing") { updateDrawUI(); }
 });
@@ -200,11 +201,9 @@ socket.on("yourRole", (role) => {
       <div class="role-word">${escapeHtml(role.word)}</div>
       <div class="role-label">이 제시어를 그림으로<br/>설명하세요 ✏️</div>`;
   }
-  if (state && state.phase === "reveal") {
-    show("reveal");
-    $("btn-confirm-word").disabled = false;
-    $("btn-confirm-word").textContent = "확인했어요";
-  }
+  if (state && state.phase === "reveal") show("reveal");
+  $("btn-confirm-word").disabled = false;
+  $("btn-confirm-word").textContent = "확인했어요";
 });
 $("role-card").onclick = () => $("role-card").classList.toggle("flipped");
 $("btn-confirm-word").onclick = () => {
@@ -217,6 +216,28 @@ $("btn-confirm-word").onclick = () => {
 const canvas = $("board");
 const ctx = canvas.getContext("2d");
 let drawing = false, last = null, curColor = "#2b2a33", curSize = 10, eraser = false, isMyTurn = false;
+let strokeCount = 0, maxStrokes = 3, pendingNewStroke = false;
+let turnDeadline = 0, countdownTimer = null;
+
+function updateStrokeInfo() {
+  const left = Math.max(0, maxStrokes - strokeCount);
+  const box = $("stroke-info");
+  box.innerHTML = `남은 획 <b>${left}</b>`;
+  box.classList.toggle("empty", left <= 0);
+}
+function stopCountdown() { if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; } }
+function startCountdown() {
+  stopCountdown();
+  const pill = $("timer-pill");
+  const tick = () => {
+    const remain = Math.max(0, Math.ceil((turnDeadline - Date.now()) / 1000));
+    pill.textContent = "⏱ " + remain;
+    pill.classList.toggle("warn", remain <= 5);
+    if (remain <= 0) stopCountdown();
+  };
+  tick();
+  countdownTimer = setInterval(tick, 250);
+}
 const PALETTE = ["#2b2a33", "#ff5c5c", "#4c7dff", "#ffc93c", "#23c9a0", "#a66bff", "#ff8c42", "#ffffff"];
 function buildPalette() {
   const box = $("palette"); box.innerHTML = "";
@@ -250,14 +271,22 @@ function drawSeg(seg) {
   ctx.lineTo(seg.x1 * canvas.width, seg.y1 * canvas.height);
   ctx.stroke();
 }
-function startDraw(e) { if (!isMyTurn) return; drawing = true; last = pos(e); e.preventDefault(); }
+function startDraw(e) {
+  if (!isMyTurn) return;
+  if (strokeCount >= maxStrokes) { toast(`한 턴에 ${maxStrokes}획까지만 그릴 수 있어요!`); return; }
+  drawing = true; pendingNewStroke = true; last = pos(e); e.preventDefault();
+}
 function moveDraw(e) {
   if (!drawing || !isMyTurn) return;
   const p = pos(e);
   const seg = { x0: last.x, y0: last.y, x1: p.x, y1: p.y, color: curColor, size: curSize, erase: eraser };
+  if (pendingNewStroke) {
+    seg.newStroke = true; pendingNewStroke = false;
+    strokeCount++; updateStrokeInfo();
+  }
   drawSeg(seg); socket.emit("draw", seg); last = p; e.preventDefault();
 }
-function endDraw() { drawing = false; }
+function endDraw() { drawing = false; pendingNewStroke = false; }
 canvas.addEventListener("mousedown", startDraw);
 canvas.addEventListener("mousemove", moveDraw);
 window.addEventListener("mouseup", endDraw);
@@ -276,8 +305,21 @@ socket.on("turnUpdate", (t) => {
   $("round-num").textContent = t.round;
   $("round-total").textContent = t.totalRounds;
   isMyTurn = t.currentDrawerId === myId;
+  maxStrokes = t.maxStrokes || 3;
+  strokeCount = t.strokesUsed || 0;
+  pendingNewStroke = false; drawing = false;
+  updateStrokeInfo();
+  turnDeadline = t.deadline || (Date.now() + 30000);
+  startCountdown();
   socket.emit("requestCanvas");
   updateDrawUI(t);
+});
+
+// 서버가 세는 획 수와 동기화 (내 화면 표시용)
+socket.on("strokeCount", ({ strokesUsed, maxStrokes: mx }) => {
+  if (typeof mx === "number") maxStrokes = mx;
+  if (typeof strokesUsed === "number" && strokesUsed > strokeCount) strokeCount = strokesUsed;
+  updateStrokeInfo();
 });
 function updateDrawUI(t) {
   const drawerId = t ? t.currentDrawerId : state && state.currentDrawerId;
@@ -295,7 +337,7 @@ function updateDrawUI(t) {
 }
 
 // ── 투표 ──
-socket.on("votingStart", () => { show("vote"); renderVoteList(); });
+socket.on("votingStart", () => { stopCountdown(); show("vote"); renderVoteList(); });
 function renderVoteList() {
   if (!state) return;
   const list = $("vote-list"); list.innerHTML = "";
@@ -340,6 +382,7 @@ socket.on("liarGuessPrompt", ({ options }) => {
 
 // ── 결과 ──
 socket.on("gameResult", (r) => {
+  stopCountdown();
   show("result");
   const banner = $("result-banner");
   banner.className = "result-banner " + (r.winner === "citizens" ? "citizens" : "liar");
@@ -368,5 +411,62 @@ socket.on("gameResult", (r) => {
 $("btn-again").onclick = () => socket.emit("playAgain");
 $("btn-home").onclick = () => leaveToHome();
 
-socket.on("returnedToLobby", () => { myRole = null; show("lobby"); });
+socket.on("returnedToLobby", () => { stopCountdown(); myRole = null; show("lobby"); });
 socket.on("gameAborted", ({ reason }) => toast(reason));
+
+// ─────────────────────────────────────────────
+//  채팅 (대기방 ~ 게임 내내)
+// ─────────────────────────────────────────────
+const chatDock = $("chat-dock");
+const chatMessages = $("chat-messages");
+const chatInput = $("chat-input");
+let chatUnread = 0;
+
+function chatCollapsed() { return chatDock.classList.contains("collapsed"); }
+function setUnread(n) {
+  chatUnread = n;
+  const badge = $("chat-unread");
+  badge.textContent = n;
+  badge.classList.toggle("hidden", n <= 0);
+}
+$("chat-head").onclick = (e) => {
+  if (e.target === chatInput) return;
+  chatDock.classList.toggle("collapsed");
+  if (!chatCollapsed()) { setUnread(0); chatMessages.scrollTop = chatMessages.scrollHeight; }
+};
+
+function sendChat() {
+  const text = chatInput.value.trim();
+  if (!text) return;
+  socket.emit("chat", { text });
+  chatInput.value = "";
+}
+$("chat-send").onclick = sendChat;
+chatInput.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); sendChat(); } });
+
+function appendChat(m) {
+  const row = document.createElement("div");
+  if (m.type === "system") {
+    row.className = "chat-msg system";
+    row.innerHTML = `<span class="bubble">${escapeHtml(m.text)}</span>`;
+  } else {
+    const mine = m.key === myId;
+    row.className = "chat-msg" + (mine ? " mine" : "");
+    const who = mine ? "나" : escapeHtml(m.nickname);
+    const color = mine ? "" : ` style="color:${avatarColor(m.key)}"`;
+    row.innerHTML = `<span class="who"${color}>${who}</span><span class="bubble">${escapeHtml(m.text)}</span>`;
+  }
+  chatMessages.appendChild(row);
+  const nearBottom = chatMessages.scrollHeight - chatMessages.scrollTop - chatMessages.clientHeight < 60;
+  if (nearBottom || (m.type !== "system" && m.key === myId)) chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+socket.on("chatHistory", (list) => {
+  chatMessages.innerHTML = "";
+  (list || []).forEach(appendChat);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+});
+socket.on("chatMessage", (m) => {
+  appendChat(m);
+  if (chatCollapsed() && !(m.type !== "system" && m.key === myId)) setUnread(chatUnread + 1);
+});
