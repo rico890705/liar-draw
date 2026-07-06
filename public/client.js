@@ -122,6 +122,18 @@ $("btn-ready").onclick = () => socket.emit("toggleReady");
 $("btn-start").onclick = () => socket.emit("startGame", { category: selectedCategory });
 $("btn-leave-lobby").onclick = () => leaveToHome();
 
+// 게임 설정 스테퍼 (방장만)
+document.querySelectorAll("#settings-block .step-btn").forEach((b) => {
+  b.onclick = () => {
+    if (!isHost()) return;
+    const key = b.closest(".stepper").dataset.key;
+    const cur = (state && state.settings && state.settings[key]) || 0;
+    socket.emit("updateSettings", { key, value: cur + (+b.dataset.delta) });
+  };
+});
+$("btn-decoy").onclick = () => { if (isHost()) socket.emit("toggleDecoy"); };
+$("btn-reset-scores").onclick = () => { if (isHost()) socket.emit("resetScores"); };
+
 function leaveToHome() {
   socket.emit("leaveRoom");
   joinedRoom = false; roomCode = null;
@@ -155,6 +167,7 @@ function renderLobby() {
     li.innerHTML = `
       <span class="avatar" style="background:${avatarColor(p.id)}">${initial(p.nickname)}</span>
       <span class="pname">${escapeHtml(p.nickname)}${p.id === myId ? " (나)" : ""}</span>
+      <span class="score-chip">${p.score || 0}점</span>
       ${p.isHost ? '<span class="crown">👑</span>' : ""}
       <span class="badge-ready ${p.ready || p.isHost ? "on" : "off"}">${p.isHost ? "방장" : p.ready ? "READY" : "대기"}</span>`;
     list.appendChild(li);
@@ -171,6 +184,17 @@ function renderLobby() {
     el.classList.toggle("locked", !iamHost); // 방장이 아니면 보기 전용
   });
   $("category-label").textContent = iamHost ? "주제 고르기 (탭해서 선택)" : "주제 (방장이 선택해요)";
+
+  // 게임 설정(제한시간/획수/라운드) + 미끼 모드
+  const s = state.settings || { turnSeconds: 30, maxStrokes: 3, totalRounds: 2 };
+  $("set-turnSeconds").textContent = s.turnSeconds;
+  $("set-maxStrokes").textContent = s.maxStrokes;
+  $("set-totalRounds").textContent = s.totalRounds;
+  $("btn-decoy").textContent = "🎭 라이어 미끼 단어: " + (state.decoyMode ? "켬" : "끔");
+  $("btn-decoy").classList.toggle("on", !!state.decoyMode);
+  $("settings-block").classList.toggle("readonly", !iamHost);
+  $("btn-reset-scores").classList.toggle("hidden", !iamHost);
+  $("settings-label").textContent = iamHost ? "게임 설정 (탭해서 조절)" : "게임 설정 (방장이 정해요)";
 
   const me = state.players.find((p) => p.id === myId);
   $("btn-ready").textContent = me && me.ready ? "READY 취소" : "READY";
@@ -202,9 +226,15 @@ socket.on("yourRole", (role) => {
   card.classList.remove("flipped");
   back.classList.toggle("liar", role.isLiar);
   if (role.isLiar) {
-    back.innerHTML = `<div class="role-label">주제: ${escapeHtml(role.category)}</div>
-      <div class="role-word">라이어!</div>
-      <div class="role-label">제시어를 모릅니다.<br/>티 내지 말고 그리세요 🤫</div>`;
+    if (role.decoy && role.word) {
+      back.innerHTML = `<div class="role-label">주제: ${escapeHtml(role.category)}</div>
+        <div class="role-word">라이어!</div>
+        <div class="role-label">힌트 단어: <b>${escapeHtml(role.word)}</b><br/>이걸로 아는 척 하세요 🤫</div>`;
+    } else {
+      back.innerHTML = `<div class="role-label">주제: ${escapeHtml(role.category)}</div>
+        <div class="role-word">라이어!</div>
+        <div class="role-label">제시어를 모릅니다.<br/>티 내지 말고 그리세요 🤫</div>`;
+    }
   } else {
     back.innerHTML = `<div class="role-label">주제: ${escapeHtml(role.category)}</div>
       <div class="role-word">${escapeHtml(role.word)}</div>
@@ -423,8 +453,10 @@ function updateDrawUI(t) {
   const drawerName = t ? t.drawerName : (state && (state.players.find((p) => p.id === drawerId) || {}).nickname) || "?";
   const wordBox = $("my-word");
   if (myRole) {
-    if (myRole.isLiar) { wordBox.textContent = "🤫 나는 라이어"; wordBox.classList.add("liar"); }
-    else { wordBox.textContent = "내 제시어: " + myRole.word; wordBox.classList.remove("liar"); }
+    if (myRole.isLiar) {
+      wordBox.textContent = myRole.decoy && myRole.word ? `🤫 라이어 (힌트: ${myRole.word})` : "🤫 나는 라이어";
+      wordBox.classList.add("liar");
+    } else { wordBox.textContent = "내 제시어: " + myRole.word; wordBox.classList.remove("liar"); }
   }
   $("tools").classList.toggle("hidden", !isMyTurn);
   $("watch-overlay").classList.toggle("hidden", isMyTurn);
@@ -476,10 +508,58 @@ socket.on("liarGuessPrompt", ({ options }) => {
   });
 });
 
+// ── 결과: 완성 그림 갤러리 ──
+let galleryHistory = [];
+let galleryLiarId = null;
+let highlightLiar = false;
+function renderGallery() {
+  const cv = $("gallery-canvas");
+  const g = cv.getContext("2d");
+  g.fillStyle = "#ffffff"; g.fillRect(0, 0, cv.width, cv.height);
+  g.lineCap = "round"; g.lineJoin = "round";
+  galleryHistory.forEach((s) => {
+    const isLiarStroke = s.by && s.by === galleryLiarId;
+    if (highlightLiar && !isLiarStroke) return; // 라이어 획만 보기 모드
+    g.strokeStyle = s.erase ? "#ffffff" : (highlightLiar && isLiarStroke ? "#ff2d2d" : s.color);
+    const w = (highlightLiar && isLiarStroke) ? Math.max(s.size, 8) : s.size;
+    g.lineWidth = w * (cv.width / 1000);
+    g.beginPath();
+    g.moveTo(s.x0 * cv.width, s.y0 * cv.height); g.lineTo(s.x1 * cv.width, s.y1 * cv.height); g.stroke();
+  });
+}
+$("btn-highlight-liar").onclick = () => {
+  highlightLiar = !highlightLiar;
+  $("btn-highlight-liar").classList.toggle("active", highlightLiar);
+  $("btn-highlight-liar").textContent = highlightLiar ? "🎨 전체 그림 보기" : "😈 라이어 획만 보기";
+  renderGallery();
+};
+
+function renderStandings(standings) {
+  const sl = $("standings-list"); sl.innerHTML = "";
+  (standings || []).forEach((st, i) => {
+    const li = document.createElement("li");
+    li.className = "player-item" + (st.id === myId ? " me" : "");
+    const medal = ["🥇", "🥈", "🥉"][i] || `${i + 1}위`;
+    li.innerHTML = `<span class="rank">${medal}</span>
+      <span class="avatar" style="background:${avatarColor(st.id)}">${initial(st.nickname)}</span>
+      <span class="pname">${escapeHtml(st.nickname)}${st.isLiar ? " 😈" : ""}${st.id === myId ? " (나)" : ""}</span>
+      <span class="badge-ready on">${st.score}점</span>`;
+    sl.appendChild(li);
+  });
+}
+
 // ── 결과 ──
 socket.on("gameResult", (r) => {
   stopCountdown();
   show("result");
+  // 갤러리
+  galleryHistory = (r.history && r.history.length ? r.history : histLocal) || [];
+  galleryLiarId = r.liarId;
+  highlightLiar = false;
+  $("btn-highlight-liar").classList.remove("active");
+  $("btn-highlight-liar").textContent = "😈 라이어 획만 보기";
+  renderGallery();
+  renderStandings(r.standings);
   const banner = $("result-banner");
   banner.className = "result-banner " + (r.winner === "citizens" ? "citizens" : "liar");
   banner.textContent = r.winner === "citizens" ? "🎉 시민 승리!" : "😈 라이어 승리!";

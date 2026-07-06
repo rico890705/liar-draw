@@ -15,8 +15,14 @@ app.use(express.static(path.join(__dirname, "public")));
 
 const PORT = process.env.PORT || 3000;
 const GRACE_MS = 40000; // 재연결 유예 시간
-const TURN_SECONDS = 30; // 한 사람당 그리기 제한 시간
-const MAX_STROKES = 3;   // 한 턴에 그릴 수 있는 획 수
+
+// 방장이 조절할 수 있는 설정 (기본값 + 허용 범위)
+const DEFAULT_SETTINGS = { turnSeconds: 30, maxStrokes: 3, totalRounds: 2 };
+const SETTING_BOUNDS = {
+  turnSeconds: { min: 15, max: 90 },
+  maxStrokes: { min: 1, max: 8 },
+  totalRounds: { min: 1, max: 4 },
+};
 
 // ── 제시어 은행 ────────────────────────────────────────────────
 const WORD_BANK = {
@@ -74,6 +80,8 @@ function publicRoom(room) {
     selectedCategory: room.selectedCategory || null,
     categories: CATEGORIES,
     snaps: room.snapLen || {},
+    settings: room.settings || DEFAULT_SETTINGS,
+    decoyMode: !!room.decoyMode,
     round: room.round,
     totalRounds: room.totalRounds,
     currentDrawerId: room.turnOrder ? room.turnOrder[room.currentTurnIndex] : null,
@@ -87,6 +95,7 @@ function publicRoom(room) {
       isHost: p.key === room.hostId,
       confirmed: room.confirmedSet ? room.confirmedSet.has(p.key) : false,
       hasVoted: room.votes ? room.votes[p.key] != null : false,
+      score: (room.scores && room.scores[p.key]) || 0,
     })),
   };
 }
@@ -116,7 +125,15 @@ function startGame(room, category) {
   const liar = players[Math.floor(Math.random() * players.length)];
   room.liarId = liar.key;
 
-  room.totalRounds = 2;
+  // 미끼 단어: 같은 카테고리에서 정답과 다른 단어 하나 (미끼 모드일 때만 라이어에게 전달)
+  if (room.decoyMode) {
+    const pool = words.filter((w) => w !== room.word);
+    room.liarDecoy = pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
+  } else {
+    room.liarDecoy = null;
+  }
+
+  room.totalRounds = (room.settings && room.settings.totalRounds) || DEFAULT_SETTINGS.totalRounds;
   const seatOrder = shuffle(players.map((p) => p.key));
   room.turnOrder = [];
   for (let r = 0; r < room.totalRounds; r++) room.turnOrder.push(...seatOrder);
@@ -137,7 +154,7 @@ function startGame(room, category) {
 
 function sendRole(room, p) {
   if (!p.connected || !p.socketId) return;
-  if (p.key === room.liarId) io.to(p.socketId).emit("yourRole", { isLiar: true, category: room.category, word: null });
+  if (p.key === room.liarId) io.to(p.socketId).emit("yourRole", { isLiar: true, category: room.category, word: room.decoyMode ? room.liarDecoy : null, decoy: !!room.decoyMode });
   else io.to(p.socketId).emit("yourRole", { isLiar: false, category: room.category, word: room.word });
 }
 
@@ -169,15 +186,16 @@ function announceTurn(room) {
 
   // 이 턴 상태 초기화
   clearTurnTimer(room);
+  const turnSeconds = room.settings.turnSeconds;
   room.strokesUsed = 0;
   room.strokeRejected = false;
-  room.turnDeadline = Date.now() + TURN_SECONDS * 1000;
+  room.turnDeadline = Date.now() + turnSeconds * 1000;
   room.turnTimer = setTimeout(() => {
     // 시간 초과 → 자동으로 다음 사람
     if (room.phase === "drawing" && room.turnOrder[room.currentTurnIndex] === drawerId) {
       nextTurn(room);
     }
-  }, TURN_SECONDS * 1000);
+  }, turnSeconds * 1000);
 
   const next = nextDrawerId ? getPlayer(room, nextDrawerId) : null;
   io.to(room.code).emit("turnUpdate", {
@@ -189,7 +207,7 @@ function announceTurn(room) {
     round: room.round,
     totalRounds: room.totalRounds,
     deadline: room.turnDeadline,
-    maxStrokes: MAX_STROKES,
+    maxStrokes: room.settings.maxStrokes,
     strokesUsed: 0,
   });
   broadcastRoom(room);
@@ -253,16 +271,31 @@ function finishGame(room, result) {
   clearTurnTimer(room);
   room.phase = "result";
   const liar = getPlayer(room, room.liarId);
+
+  // ── 점수 정산 (누적) ──
+  if (!room.scores) room.scores = {};
+  if (result.winner === "citizens") {
+    room.players.forEach((p) => { if (p.key !== room.liarId) room.scores[p.key] = (room.scores[p.key] || 0) + 1; });
+  } else {
+    room.scores[room.liarId] = (room.scores[room.liarId] || 0) + 2;
+  }
+  const standings = room.players
+    .map((p) => ({ id: p.key, nickname: p.nickname, score: room.scores[p.key] || 0, isLiar: p.key === room.liarId }))
+    .sort((a, b) => b.score - a.score);
+
   const payload = {
     winner: result.winner,
     word: room.word,
     category: room.category,
     liarId: room.liarId,
     liarName: liar ? liar.nickname : "?",
+    liarDecoy: room.decoyMode ? room.liarDecoy : null,
     accusedId: result.accusedId || null,
     tie: !!result.tie,
     liarGuess: result.liarGuess || null,
     breakdown: result.breakdown || room.pendingBreakdown || [],
+    standings,
+    history: room.canvasHistory || [], // 완성 그림 갤러리용 (획마다 by=그린사람 키)
   };
   room.lastResult = payload;
   io.to(room.code).emit("gameResult", payload);
@@ -275,7 +308,7 @@ function resetToLobby(room) {
   room.category = null; room.word = null; room.liarId = null;
   room.turnOrder = null; room.currentTurnIndex = null; room.round = null;
   room.canvasHistory = []; room.snapLen = {}; room.confirmedSet = new Set(); room.votes = {};
-  room.pendingBreakdown = null; room.lastResult = null; room.liarOptions = null;
+  room.pendingBreakdown = null; room.lastResult = null; room.liarOptions = null; room.liarDecoy = null;
   room.players.forEach((p) => (p.ready = false));
   io.to(room.code).emit("returnedToLobby");
   broadcastRoom(room);
@@ -301,7 +334,7 @@ function resync(room, p) {
       order,
       round: room.round, totalRounds: room.totalRounds,
       deadline: room.turnDeadline,
-      maxStrokes: MAX_STROKES,
+      maxStrokes: room.settings.maxStrokes,
       strokesUsed: room.strokesUsed || 0,
     });
     io.to(s).emit("canvasHistory", room.canvasHistory || []);
@@ -338,7 +371,7 @@ io.on("connection", (socket) => {
     if (mode === "create") {
       if (!nickname) return err("닉네임을 입력해 주세요.");
       const code = makeRoomCode();
-      const room = { code, hostId: playerKey, phase: "lobby", players: [], canvasHistory: [], chat: [], selectedCategory: CATEGORIES[0] };
+      const room = { code, hostId: playerKey, phase: "lobby", players: [], canvasHistory: [], chat: [], selectedCategory: CATEGORIES[0], settings: { ...DEFAULT_SETTINGS }, scores: {}, decoyMode: false };
       rooms[code] = room;
       room.players.push({ key: playerKey, socketId: socket.id, nickname, ready: false, connected: true });
       bind(room, playerKey);
@@ -410,6 +443,32 @@ io.on("connection", (socket) => {
     broadcastRoom(c.room);
   });
 
+  socket.on("updateSettings", ({ key, value } = {}) => {
+    const c = ctx(); if (!c || c.room.phase !== "lobby") return;
+    if (c.key !== c.room.hostId) return; // 방장만
+    const b = SETTING_BOUNDS[key]; if (!b) return;
+    let v = Math.round(Number(value));
+    if (!Number.isFinite(v)) return;
+    v = Math.max(b.min, Math.min(b.max, v));
+    if (!c.room.settings) c.room.settings = { ...DEFAULT_SETTINGS };
+    c.room.settings[key] = v;
+    broadcastRoom(c.room);
+  });
+
+  socket.on("toggleDecoy", () => {
+    const c = ctx(); if (!c || c.room.phase !== "lobby") return;
+    if (c.key !== c.room.hostId) return;
+    c.room.decoyMode = !c.room.decoyMode;
+    broadcastRoom(c.room);
+  });
+
+  socket.on("resetScores", () => {
+    const c = ctx(); if (!c || c.room.phase !== "lobby") return;
+    if (c.key !== c.room.hostId) return;
+    c.room.scores = {};
+    broadcastRoom(c.room);
+  });
+
   socket.on("startGame", ({ category } = {}) => {
     const c = ctx(); if (!c || c.room.phase !== "lobby") return;
     if (c.key !== c.room.hostId) return err("방장만 시작할 수 있어요.");
@@ -430,15 +489,17 @@ io.on("connection", (socket) => {
     const c = ctx(); if (!c || c.room.phase !== "drawing") return;
     if (c.room.turnOrder[c.room.currentTurnIndex] !== c.key) return;
     const room = c.room;
+    const max = room.settings.maxStrokes;
     // 새 획 시작이면 획 수를 세고, 한도를 넘으면 이 획은 무시
     if (seg && seg.newStroke) {
-      if ((room.strokesUsed || 0) >= MAX_STROKES) { room.strokeRejected = true; return; }
+      if ((room.strokesUsed || 0) >= max) { room.strokeRejected = true; return; }
       room.strokesUsed = (room.strokesUsed || 0) + 1;
       room.strokeRejected = false;
-      io.to(room.code).emit("strokeCount", { strokesUsed: room.strokesUsed, maxStrokes: MAX_STROKES });
+      io.to(room.code).emit("strokeCount", { strokesUsed: room.strokesUsed, maxStrokes: max });
     } else if (room.strokeRejected) {
       return; // 한도 초과 획의 이어지는 선들도 무시
     }
+    if (seg) seg.by = c.key; // 완성 그림 갤러리에서 라이어 획을 구분하기 위해
     room.canvasHistory.push(seg);
     socket.to(room.code).emit("draw", seg);
   });

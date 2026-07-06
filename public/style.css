@@ -182,6 +182,49 @@ html, body {
 
 .host-controls { display: flex; flex-direction: column; gap: 6px; align-items: center; }
 
+/* ── 게임 설정 (대기실) ── */
+.settings-block {
+  background: #fff; border: 3px solid var(--ink); border-radius: 16px;
+  padding: 12px 14px; box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 8px;
+}
+.setting-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.setting-name { font-weight: 800; font-size: 0.92rem; }
+.stepper { display: flex; align-items: center; gap: 8px; }
+.step-btn {
+  font-family: "Jua"; font-size: 1.15rem; width: 30px; height: 30px; line-height: 1; padding: 0;
+  border: 2px solid var(--ink); border-radius: 9px; background: var(--yellow); color: var(--ink);
+  cursor: pointer; box-shadow: 2px 2px 0 var(--ink);
+}
+.step-btn:active { transform: translate(2px, 2px); box-shadow: none; }
+.setting-val { font-family: "Jua"; font-size: 1.2rem; min-width: 26px; text-align: center; }
+.setting-unit { font-size: 0.78rem; color: #9a99a3; margin-left: -4px; }
+.decoy-toggle {
+  font-family: "Jua"; font-size: 0.95rem; padding: 9px 12px; margin-top: 2px;
+  border: 3px solid var(--ink); border-radius: 12px; background: #fff; color: var(--ink);
+  cursor: pointer; box-shadow: var(--shadow-sm);
+}
+.decoy-toggle:active { transform: translate(3px, 3px); box-shadow: none; }
+.decoy-toggle.on { background: var(--purple); color: #fff; }
+.settings-block.readonly .step-btn,
+.settings-block.readonly .decoy-toggle { pointer-events: none; opacity: 0.5; box-shadow: 2px 2px 0 var(--ink); }
+
+.score-chip {
+  font-family: "Jua"; font-size: 0.78rem; padding: 2px 8px; border-radius: 999px;
+  border: 2px solid var(--ink); background: var(--yellow); color: var(--ink); flex: none;
+}
+
+/* ── 결과: 완성 그림 갤러리 + 점수판 ── */
+.gallery-wrap { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.gallery-canvas-wrap {
+  width: 100%; background: #fff; border: 4px solid var(--ink); border-radius: 16px;
+  box-shadow: var(--shadow); overflow: hidden; aspect-ratio: 10 / 7; transform: rotate(-0.5deg);
+}
+#gallery-canvas { width: 100%; height: 100%; display: block; }
+.gallery-toggle { align-self: center; }
+.standings-block { display: flex; flex-direction: column; gap: 8px; }
+.mini-title { font-family: "Jua"; font-size: 1.3rem; text-align: center; margin: 6px 0 0; }
+.player-item .rank { font-family: "Jua"; font-size: 1.05rem; min-width: 30px; text-align: center; flex: none; }
+
 /* ── 역할 카드 (뒤집기) ── */
 .role-card { perspective: 1200px; width: 240px; height: 320px; margin: 8px auto; cursor: pointer; }
 .role-card-inner {

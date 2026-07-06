@@ -52,6 +52,36 @@
         <div id="category-picker" class="chip-row"></div>
       </div>
 
+      <div id="settings-block" class="settings-block">
+        <label class="field-label" id="settings-label">게임 설정</label>
+        <div class="setting-row">
+          <span class="setting-name">⏱ 제한시간</span>
+          <div class="stepper" data-key="turnSeconds">
+            <button class="step-btn" data-delta="-5">−</button>
+            <b class="setting-val" id="set-turnSeconds">30</b><span class="setting-unit">초</span>
+            <button class="step-btn" data-delta="5">＋</button>
+          </div>
+        </div>
+        <div class="setting-row">
+          <span class="setting-name">✏️ 획 수</span>
+          <div class="stepper" data-key="maxStrokes">
+            <button class="step-btn" data-delta="-1">−</button>
+            <b class="setting-val" id="set-maxStrokes">3</b><span class="setting-unit">획</span>
+            <button class="step-btn" data-delta="1">＋</button>
+          </div>
+        </div>
+        <div class="setting-row">
+          <span class="setting-name">🔁 라운드</span>
+          <div class="stepper" data-key="totalRounds">
+            <button class="step-btn" data-delta="-1">−</button>
+            <b class="setting-val" id="set-totalRounds">2</b><span class="setting-unit">바퀴</span>
+            <button class="step-btn" data-delta="1">＋</button>
+          </div>
+        </div>
+        <button id="btn-decoy" class="decoy-toggle">🎭 라이어 미끼 단어: 끔</button>
+        <button id="btn-reset-scores" class="link-btn">점수 초기화</button>
+      </div>
+
       <div class="btn-row">
         <button id="btn-ready" class="btn btn-green">READY</button>
         <button id="btn-start" class="btn btn-red hidden">START</button>
@@ -139,6 +169,19 @@
         <p class="result-line">라이어는 <b id="result-liar"></b> 였어요</p>
         <div id="result-extra" class="result-extra"></div>
       </div>
+
+      <div id="gallery-wrap" class="gallery-wrap">
+        <div class="gallery-canvas-wrap">
+          <canvas id="gallery-canvas" width="1000" height="700"></canvas>
+        </div>
+        <button id="btn-highlight-liar" class="tool-btn gallery-toggle">😈 라이어 획만 보기</button>
+      </div>
+
+      <div id="standings-block" class="standings-block">
+        <h3 class="mini-title">🏆 점수판</h3>
+        <ul id="standings-list" class="player-list"></ul>
+      </div>
+
       <ul id="result-votes" class="result-votes"></ul>
       <div class="btn-row">
         <button id="btn-again" class="btn btn-green hidden">다시하기</button>
