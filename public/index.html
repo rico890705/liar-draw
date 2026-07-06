@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>라이어 그림 게임</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Jua&family=Gaegu:wght@400;700&family=Gothic+A1:wght@400;500;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="paper-bg"></div>
+
+  <!-- 토스트 -->
+  <div id="toast" class="toast"></div>
+
+  <!-- 1. 로그인 -->
+  <section id="screen-login" class="screen active">
+    <div class="stack">
+      <h1 class="logo">라이어<br /><span>그림 게임</span></h1>
+      <p class="tagline">한 명은 제시어를 몰라요. 그림으로 들키지 마세요.</p>
+
+      <div class="card sticker-card">
+        <label class="field-label">닉네임</label>
+        <input id="nickname" class="text-input" maxlength="12" placeholder="이름을 적어주세요" autocomplete="off" />
+
+        <div id="join-block">
+          <label class="field-label">방 코드</label>
+          <input id="roomCode" class="text-input code-input" maxlength="4" placeholder="ABCD" autocomplete="off" />
+        </div>
+
+        <div class="btn-row">
+          <button id="btn-create" class="btn btn-blue">방 만들기</button>
+          <button id="btn-join" class="btn btn-yellow">방 참가</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. 대기실 -->
+  <section id="screen-lobby" class="screen">
+    <div class="stack">
+      <div class="room-badge">방 코드 <b id="lobby-code">----</b><button id="btn-copy" class="mini-btn">복사</button></div>
+      <h2 class="section-title">대기실</h2>
+      <p class="hint">친구에게 방 코드를 알려주세요. 3~10명이면 시작할 수 있어요.</p>
+
+      <ul id="player-list" class="player-list"></ul>
+
+      <div id="host-controls" class="host-controls hidden">
+        <label class="field-label">주제 고르기</label>
+        <div id="category-picker" class="chip-row"></div>
+      </div>
+
+      <div class="btn-row">
+        <button id="btn-ready" class="btn btn-green">READY</button>
+        <button id="btn-start" class="btn btn-red hidden">START</button>
+      </div>
+      <button id="btn-leave-lobby" class="link-btn">나가기</button>
+    </div>
+  </section>
+
+  <!-- 3. 제시어 확인 -->
+  <section id="screen-reveal" class="screen">
+    <div class="stack">
+      <h2 class="section-title">제시어 확인</h2>
+      <p class="hint">카드를 눌러 내 역할을 확인하세요. 다른 사람에게 보이지 않게!</p>
+
+      <div id="role-card" class="role-card">
+        <div class="role-card-inner">
+          <div class="role-front">
+            <span class="tap-hint">눌러서 확인</span>
+            <div class="qmark">?</div>
+          </div>
+          <div class="role-back" id="role-back"></div>
+        </div>
+      </div>
+
+      <button id="btn-confirm-word" class="btn btn-green">확인했어요</button>
+      <p class="wait-text"><span id="confirm-progress">0</span>명 확인 완료</p>
+    </div>
+  </section>
+
+  <!-- 4. 그리기 -->
+  <section id="screen-draw" class="screen draw-screen">
+    <div class="draw-header">
+      <div class="turn-info">
+        <span class="round-pill">Round <b id="round-num">1</b>/<span id="round-total">2</span></span>
+        <span id="turn-status" class="turn-status">차례를 기다리는 중…</span>
+      </div>
+      <div id="my-word" class="my-word"></div>
+    </div>
+
+    <div class="canvas-wrap">
+      <canvas id="board" width="1000" height="700"></canvas>
+      <div id="watch-overlay" class="watch-overlay hidden"><span id="watch-text"></span></div>
+    </div>
+
+    <div id="tools" class="tools hidden">
+      <div class="palette" id="palette"></div>
+      <div class="tool-group">
+        <button class="tool-btn" data-size="4">가늘게</button>
+        <button class="tool-btn active" data-size="10">보통</button>
+        <button class="tool-btn" data-size="22">굵게</button>
+        <button id="btn-eraser" class="tool-btn">지우개</button>
+      </div>
+      <button id="btn-done" class="btn btn-red small">그리기 완료 →</button>
+    </div>
+  </section>
+
+  <!-- 5. 투표 -->
+  <section id="screen-vote" class="screen">
+    <div class="stack">
+      <h2 class="section-title">라이어는 누구?</h2>
+      <p class="hint">토의가 끝났다면, 라이어라고 생각하는 사람을 골라주세요.</p>
+      <ul id="vote-list" class="vote-list"></ul>
+      <p class="wait-text"><span id="vote-progress">0</span>명 투표 완료</p>
+    </div>
+  </section>
+
+  <!-- 6. 라이어 최후의 기회 -->
+  <section id="screen-guess" class="screen">
+    <div class="stack">
+      <h2 class="section-title" id="guess-title">라이어 지목!</h2>
+      <p class="hint" id="guess-sub"></p>
+      <div id="guess-options" class="chip-row big-chips"></div>
+      <p class="wait-text" id="guess-wait"></p>
+    </div>
+  </section>
+
+  <!-- 7. 결과 -->
+  <section id="screen-result" class="screen">
+    <div class="stack">
+      <div id="result-banner" class="result-banner"></div>
+      <div class="card sticker-card result-detail">
+        <p class="result-line">제시어는 <b id="result-word"></b> <span class="result-cat" id="result-cat"></span></p>
+        <p class="result-line">라이어는 <b id="result-liar"></b> 였어요</p>
+        <div id="result-extra" class="result-extra"></div>
+      </div>
+      <ul id="result-votes" class="result-votes"></ul>
+      <div class="btn-row">
+        <button id="btn-again" class="btn btn-green hidden">다시하기</button>
+        <button id="btn-home" class="btn btn-yellow">처음으로</button>
+      </div>
+      <p id="wait-host" class="hint hidden">방장이 다시 시작하기를 기다리는 중…</p>
+    </div>
+  </section>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="client.js"></script>
+</body>
+</html>

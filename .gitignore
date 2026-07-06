@@ -1,0 +1,7 @@
+# 의존성 (배포 시 npm install 로 자동 설치되므로 올리지 않음)
+node_modules/
+
+# 로그/환경
+npm-debug.log*
+.env
+.DS_Store

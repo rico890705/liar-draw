@@ -1,0 +1,284 @@
+:root {
+  --ink: #2b2a33;
+  --paper: #fffdf5;
+  --line: #d9e2e0;
+  --red: #ff5c5c;
+  --blue: #4c7dff;
+  --yellow: #ffc93c;
+  --green: #23c9a0;
+  --purple: #a66bff;
+  --shadow: 4px 4px 0 var(--ink);
+  --shadow-sm: 3px 3px 0 var(--ink);
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  font-family: "Gothic A1", sans-serif;
+  color: var(--ink);
+  background: var(--paper);
+  overscroll-behavior: none;
+}
+
+.paper-bg {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background-color: var(--paper);
+  background-image:
+    linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size: 26px 26px;
+  opacity: 0.55;
+}
+
+/* ── 화면 전환 ── */
+.screen {
+  display: none;
+  min-height: 100%;
+  padding: 28px 20px 40px;
+  align-items: flex-start;
+  justify-content: center;
+}
+.screen.active { display: flex; }
+
+.stack {
+  width: 100%;
+  max-width: 460px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding-top: 6px;
+}
+
+/* ── 타이포 ── */
+.logo {
+  font-family: "Jua", sans-serif;
+  font-size: 3.4rem;
+  line-height: 0.95;
+  text-align: center;
+  margin: 12px 0 0;
+  letter-spacing: 1px;
+  text-shadow: 3px 3px 0 var(--yellow);
+}
+.logo span { color: var(--blue); text-shadow: 3px 3px 0 var(--ink); }
+
+.tagline {
+  font-family: "Gaegu", cursive;
+  font-size: 1.25rem;
+  text-align: center;
+  margin: -4px 0 6px;
+  color: #6a6975;
+}
+
+.section-title {
+  font-family: "Jua", sans-serif;
+  font-size: 2rem;
+  text-align: center;
+  margin: 4px 0 0;
+}
+.hint { text-align: center; color: #7c7b86; margin: -6px 0 4px; font-size: 0.95rem; }
+.field-label { font-weight: 800; font-size: 0.9rem; margin: 6px 0 4px; display: block; }
+
+/* ── 스티커 카드 ── */
+.card {
+  background: #fff;
+  border: 3px solid var(--ink);
+  border-radius: 20px;
+  padding: 22px 20px;
+  box-shadow: var(--shadow);
+}
+.sticker-card { transform: rotate(-0.6deg); }
+
+/* ── 입력 ── */
+.text-input {
+  width: 100%;
+  font-family: "Gothic A1", sans-serif;
+  font-size: 1.1rem;
+  font-weight: 700;
+  padding: 13px 15px;
+  border: 3px solid var(--ink);
+  border-radius: 14px;
+  background: #fffdf5;
+  margin-bottom: 12px;
+  outline: none;
+}
+.text-input:focus { box-shadow: var(--shadow-sm); }
+.code-input { letter-spacing: 8px; text-align: center; text-transform: uppercase; font-family: "Jua"; }
+
+/* ── 버튼 ── */
+.btn {
+  font-family: "Jua", sans-serif;
+  font-size: 1.15rem;
+  padding: 14px 18px;
+  border: 3px solid var(--ink);
+  border-radius: 16px;
+  cursor: pointer;
+  color: var(--ink);
+  box-shadow: var(--shadow);
+  transition: transform 0.06s, box-shadow 0.06s;
+  flex: 1;
+  user-select: none;
+}
+.btn:active { transform: translate(4px, 4px); box-shadow: 0 0 0 var(--ink); }
+.btn.small { flex: none; font-size: 1rem; padding: 10px 16px; }
+.btn-blue { background: var(--blue); color: #fff; }
+.btn-yellow { background: var(--yellow); }
+.btn-green { background: var(--green); color: #fff; }
+.btn-red { background: var(--red); color: #fff; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: var(--shadow); transform: none; }
+
+.btn-row { display: flex; gap: 12px; }
+.link-btn {
+  background: none; border: none; color: #9a99a3; text-decoration: underline;
+  font-family: "Gothic A1"; font-size: 0.95rem; cursor: pointer; margin: 4px auto 0;
+}
+.mini-btn {
+  font-family: "Gothic A1"; font-weight: 800; font-size: 0.8rem;
+  border: 2px solid var(--ink); background: #fff; border-radius: 8px;
+  padding: 2px 8px; margin-left: 8px; cursor: pointer;
+}
+
+/* ── 대기실 ── */
+.room-badge {
+  align-self: center; font-family: "Gaegu", cursive; font-size: 1.15rem;
+  background: #fff; border: 3px solid var(--ink); border-radius: 999px;
+  padding: 6px 16px; box-shadow: var(--shadow-sm);
+}
+.room-badge b { font-family: "Jua"; font-size: 1.35rem; letter-spacing: 3px; color: var(--blue); }
+
+.player-list, .vote-list, .result-votes { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
+.player-item {
+  display: flex; align-items: center; gap: 10px;
+  background: #fff; border: 3px solid var(--ink); border-radius: 14px;
+  padding: 11px 14px; box-shadow: var(--shadow-sm); font-weight: 700;
+}
+.player-item .avatar {
+  width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--ink);
+  display: grid; place-items: center; font-family: "Jua"; color: #fff; font-size: 0.9rem; flex: none;
+}
+.player-item .pname { flex: 1; }
+.player-item .crown { font-size: 1.1rem; }
+.badge-ready { font-family: "Jua"; font-size: 0.8rem; padding: 3px 9px; border-radius: 999px; border: 2px solid var(--ink); }
+.badge-ready.on { background: var(--green); color: #fff; }
+.badge-ready.off { background: #eee; color: #999; }
+.player-item.me { background: #fffef0; }
+.player-item.offline { opacity: 0.4; }
+
+/* ── 칩 (주제/보기) ── */
+.chip-row { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.chip {
+  font-family: "Jua"; font-size: 1rem; padding: 8px 14px;
+  border: 3px solid var(--ink); border-radius: 999px; background: #fff;
+  cursor: pointer; box-shadow: var(--shadow-sm);
+}
+.chip.selected { background: var(--purple); color: #fff; }
+.big-chips .chip { font-size: 1.15rem; padding: 12px 20px; }
+
+.host-controls { display: flex; flex-direction: column; gap: 6px; align-items: center; }
+
+/* ── 역할 카드 (뒤집기) ── */
+.role-card { perspective: 1200px; width: 240px; height: 320px; margin: 8px auto; cursor: pointer; }
+.role-card-inner {
+  position: relative; width: 100%; height: 100%;
+  transition: transform 0.5s; transform-style: preserve-3d;
+}
+.role-card.flipped .role-card-inner { transform: rotateY(180deg); }
+.role-front, .role-back {
+  position: absolute; inset: 0; backface-visibility: hidden;
+  border: 4px solid var(--ink); border-radius: 22px; box-shadow: var(--shadow);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px; text-align: center;
+}
+.role-front { background: repeating-linear-gradient(45deg, #fff, #fff 12px, #fff8e0 12px, #fff8e0 24px); }
+.role-front .qmark { font-family: "Jua"; font-size: 6rem; color: var(--blue); }
+.tap-hint { font-family: "Gaegu"; font-size: 1.1rem; color: #999; margin-bottom: 8px; }
+.role-back { background: #fff; transform: rotateY(180deg); }
+.role-back .role-label { font-family: "Gaegu"; font-size: 1.2rem; color: #7c7b86; }
+.role-back .role-word { font-family: "Jua"; font-size: 2.6rem; margin: 6px 0; }
+.role-back.liar { background: var(--red); color: #fff; }
+.role-back.liar .role-label { color: #ffe3e3; }
+
+.wait-text { text-align: center; font-family: "Gaegu"; font-size: 1.15rem; color: #7c7b86; }
+
+/* ── 그리기 화면 ── */
+.draw-screen { display: none; flex-direction: column; padding: 10px 12px 14px; }
+.draw-screen.active { display: flex; }
+.draw-header { width: 100%; max-width: 1000px; margin: 0 auto 8px; display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.turn-info { display: flex; align-items: center; gap: 10px; }
+.round-pill { font-family: "Jua"; background: var(--yellow); border: 3px solid var(--ink); border-radius: 999px; padding: 4px 12px; box-shadow: var(--shadow-sm); }
+.turn-status { font-family: "Gaegu"; font-size: 1.2rem; font-weight: 700; }
+.my-word {
+  font-family: "Jua"; font-size: 1.1rem; padding: 6px 14px; border: 3px solid var(--ink);
+  border-radius: 999px; background: #fff; box-shadow: var(--shadow-sm); white-space: nowrap;
+}
+.my-word.liar { background: var(--red); color: #fff; }
+
+.canvas-wrap {
+  position: relative; width: 100%; max-width: 1000px; margin: 0 auto;
+  aspect-ratio: 10 / 7; background: #fff; border: 4px solid var(--ink);
+  border-radius: 18px; box-shadow: var(--shadow); overflow: hidden;
+}
+#board { width: 100%; height: 100%; display: block; touch-action: none; cursor: crosshair; }
+.watch-overlay {
+  position: absolute; inset: 0; background: rgba(255,255,255,0.35);
+  display: grid; place-items: center; pointer-events: none;
+}
+.watch-overlay span {
+  font-family: "Jua"; font-size: 1.3rem; background: var(--ink); color: #fff;
+  padding: 8px 18px; border-radius: 999px;
+}
+
+.tools {
+  width: 100%; max-width: 1000px; margin: 12px auto 0;
+  display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: center;
+}
+.palette { display: flex; gap: 8px; }
+.swatch { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--ink); cursor: pointer; box-shadow: var(--shadow-sm); }
+.swatch.active { transform: scale(1.18); }
+.tool-group { display: flex; gap: 8px; }
+.tool-btn {
+  font-family: "Gothic A1"; font-weight: 800; font-size: 0.9rem; padding: 8px 12px;
+  border: 3px solid var(--ink); border-radius: 12px; background: #fff; cursor: pointer; box-shadow: var(--shadow-sm);
+}
+.tool-btn.active { background: var(--ink); color: #fff; }
+
+/* ── 투표 ── */
+.vote-item { justify-content: space-between; }
+.vote-btn {
+  font-family: "Jua"; font-size: 0.95rem; padding: 6px 14px; border: 2px solid var(--ink);
+  border-radius: 999px; background: var(--blue); color: #fff; cursor: pointer;
+}
+.vote-item.voted { outline: 3px dashed var(--purple); }
+.tick { font-family: "Jua"; color: var(--purple); }
+
+/* ── 결과 ── */
+.result-banner {
+  font-family: "Jua"; font-size: 2.4rem; text-align: center; padding: 18px;
+  border: 4px solid var(--ink); border-radius: 20px; box-shadow: var(--shadow);
+  transform: rotate(-1deg);
+}
+.result-banner.citizens { background: var(--green); color: #fff; }
+.result-banner.liar { background: var(--red); color: #fff; }
+.result-detail { transform: rotate(0.5deg); text-align: center; }
+.result-line { font-size: 1.1rem; margin: 8px 0; }
+.result-line b { font-family: "Jua"; font-size: 1.4rem; }
+.result-cat { font-family: "Gaegu"; color: #9a99a3; }
+.result-extra { font-family: "Gaegu"; font-size: 1.15rem; margin-top: 8px; }
+.result-votes .player-item { font-size: 0.95rem; }
+
+/* ── 토스트 ── */
+.toast {
+  position: fixed; top: 18px; left: 50%; transform: translateX(-50%) translateY(-120%);
+  background: var(--ink); color: #fff; font-weight: 700; padding: 12px 20px;
+  border-radius: 14px; z-index: 100; transition: transform 0.25s; max-width: 90%; text-align: center;
+}
+.toast.show { transform: translateX(-50%) translateY(0); }
+
+.hidden { display: none !important; }
+
+@media (max-width: 480px) {
+  .logo { font-size: 2.7rem; }
+  .role-card { width: 200px; height: 270px; }
+}
