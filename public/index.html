@@ -25,14 +25,21 @@
         <label class="field-label">닉네임</label>
         <input id="nickname" class="text-input" maxlength="12" placeholder="이름을 적어주세요" autocomplete="off" />
 
-        <div id="join-block">
-          <label class="field-label">방 코드</label>
-          <input id="roomCode" class="text-input code-input" maxlength="4" placeholder="ABCD" autocomplete="off" />
-        </div>
-
         <div class="btn-row">
           <button id="btn-create" class="btn btn-blue">방 만들기</button>
-          <button id="btn-join" class="btn btn-yellow">방 참가</button>
+        </div>
+
+        <div id="invite-block" class="invite-block hidden">
+          <button id="btn-invite-join" class="btn btn-green">🎟 초대받은 방 <b id="invite-code"></b> 입장</button>
+        </div>
+
+        <div id="rooms-block" class="rooms-block">
+          <div class="rooms-head">
+            <label class="field-label">열려있는 방</label>
+            <button id="btn-refresh-rooms" class="mini-btn">↻ 새로고침</button>
+          </div>
+          <ul id="rooms-list" class="rooms-list"></ul>
+          <p id="rooms-empty" class="hint">아직 열린 방이 없어요. 방을 만들어 보세요!</p>
         </div>
       </div>
     </div>

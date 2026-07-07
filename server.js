@@ -102,6 +102,28 @@ function publicRoom(room) {
 
 function broadcastRoom(room) {
   io.to(room.code).emit("roomUpdate", publicRoom(room));
+  broadcastRoomList();
+}
+
+// 로그인 화면(방 탐색 중)에 보여줄 '입장 가능한 방' 목록
+function publicRoomList() {
+  return Object.values(rooms)
+    .filter((r) => r.phase === "lobby")
+    .map((r) => {
+      const host = getPlayer(r, r.hostId);
+      return {
+        code: r.code,
+        host: host ? host.nickname : "?",
+        count: activePlayers(r).length,
+        max: 10,
+        category: r.selectedCategory || null,
+        decoy: !!r.decoyMode,
+      };
+    })
+    .filter((r) => r.count > 0);
+}
+function broadcastRoomList() {
+  io.to("browsing").emit("roomList", publicRoomList());
 }
 
 // 채팅 메시지 저장 + 전송 (대기방/게임 어디서든 동작)
@@ -359,8 +381,16 @@ io.on("connection", (socket) => {
 
   function bind(room, key) {
     socketToKey[socket.id] = { code: room.code, key };
+    socket.leave("browsing"); // 방에 들어가면 더 이상 목록 구독 안 함
     socket.join(room.code);
   }
+
+  // 로그인 화면에서 방 목록 구독/요청
+  socket.on("browse", () => {
+    socket.join("browsing");
+    socket.emit("roomList", publicRoomList());
+  });
+  socket.on("stopBrowse", () => socket.leave("browsing"));
 
   // 방 만들기 / 참가 / 재연결을 하나로 처리
   function enter({ nickname, roomCode, playerKey, mode }) {
@@ -596,9 +626,9 @@ function removeNow(room, key) {
   const leftName = p ? p.nickname : null;
   room.players = room.players.filter((x) => x.key !== key);
 
-  if (room.players.length === 0) { delete rooms[room.code]; return; }
+  if (room.players.length === 0) { delete rooms[room.code]; broadcastRoomList(); return; }
   const remaining = activePlayers(room);
-  if (remaining.length === 0) { delete rooms[room.code]; return; }
+  if (remaining.length === 0) { delete rooms[room.code]; broadcastRoomList(); return; }
   if (room.hostId === key) room.hostId = remaining[0].key;
   if (leftName) pushChat(room, { type: "system", text: `${leftName} 님이 나갔어요` });
 

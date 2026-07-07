@@ -141,6 +141,35 @@ html, body {
   padding: 2px 8px; margin-left: 8px; cursor: pointer;
 }
 
+/* ── 방 목록 (로그인 화면) ── */
+.invite-block { margin: 10px 0 2px; }
+.invite-block .btn { width: 100%; }
+#invite-code { font-family: "Jua"; letter-spacing: 2px; }
+.rooms-block { margin-top: 14px; }
+.rooms-head { display: flex; align-items: center; justify-content: space-between; }
+.rooms-head .field-label { margin: 0; }
+.rooms-head .mini-btn { margin: 0; }
+.rooms-list { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-direction: column; gap: 8px; max-height: 320px; overflow-y: auto; }
+.room-item {
+  display: flex; align-items: center; gap: 10px;
+  background: #fff; border: 3px solid var(--ink); border-radius: 14px;
+  padding: 9px 11px; box-shadow: var(--shadow-sm);
+}
+.room-code {
+  font-family: "Jua"; font-size: 1.15rem; letter-spacing: 2px; color: var(--blue);
+  background: #fffdf5; border: 2px solid var(--ink); border-radius: 10px; padding: 4px 9px; flex: none;
+}
+.room-info { flex: 1; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.room-host { font-weight: 800; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.room-meta { font-family: "Gaegu", cursive; font-size: 0.92rem; color: #7c7b86; }
+.room-join-btn {
+  font-family: "Jua"; font-size: 0.95rem; padding: 8px 16px; flex: none;
+  border: 2px solid var(--ink); border-radius: 999px; background: var(--green); color: #fff;
+  cursor: pointer; box-shadow: 2px 2px 0 var(--ink);
+}
+.room-join-btn:active { transform: translate(2px, 2px); box-shadow: none; }
+.room-join-btn:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: 2px 2px 0 var(--ink); transform: none; background: #bbb; }
+
 /* ── 대기실 ── */
 .room-badge {
   align-self: center; font-family: "Gaegu", cursive; font-size: 1.15rem;

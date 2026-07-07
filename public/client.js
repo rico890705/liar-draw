@@ -41,17 +41,19 @@ function isHost() { return state && state.hostId === myId; }
 // ── 연결 상태에 따라 로그인 버튼 잠금 ──
 function setLoginEnabled(on) {
   $("btn-create").disabled = !on;
-  $("btn-join").disabled = !on;
   $("btn-create").textContent = on ? "방 만들기" : "서버 연결 중…";
+  document.querySelectorAll("#rooms-list .room-join-btn, #btn-invite-join").forEach((b) => (b.disabled = !on));
 }
 setLoginEnabled(false);
 
 socket.on("connect", () => {
   connected = true;
   setLoginEnabled(true);
-  // 이미 방에 있었다면 자동 복귀
+  // 이미 방에 있었다면 자동 복귀, 아니면 방 목록 구독
   if (joinedRoom && roomCode) {
     socket.emit("rejoinRoom", { nickname: myNick, roomCode, playerKey: PLAYER_KEY });
+  } else {
+    socket.emit("browse");
   }
 });
 socket.on("disconnect", () => {
@@ -71,27 +73,55 @@ $("btn-create").onclick = () => {
   lockJoin("방 만드는 중…");
   socket.emit("createRoom", { nickname, playerKey: PLAYER_KEY });
 };
-$("btn-join").onclick = () => {
+// 목록에서 방을 골라 입장
+function joinRoomCode(code) {
   if (!connected) return toast("서버에 연결 중이에요. 잠시만요.");
   const nickname = $("nickname").value.trim();
-  const code = $("roomCode").value.trim().toUpperCase();
   if (!nickname) return toast("닉네임을 적어주세요!");
-  if (code.length !== 4) return toast("방 코드 4자리를 입력하세요.");
   myNick = nickname; sessionStorage.setItem("liarNick", nickname);
   lockJoin("참가하는 중…");
-  socket.emit("joinRoom", { nickname, roomCode: code, playerKey: PLAYER_KEY });
-};
-$("roomCode").addEventListener("input", (e) => (e.target.value = e.target.value.toUpperCase()));
+  socket.emit("joinRoom", { nickname, roomCode: (code || "").toUpperCase(), playerKey: PLAYER_KEY });
+}
+
+// 열려있는 방 목록 렌더
+function renderRooms(list) {
+  list = list || [];
+  const ul = $("rooms-list"); ul.innerHTML = "";
+  $("rooms-empty").classList.toggle("hidden", list.length > 0);
+  list.forEach((r) => {
+    const li = document.createElement("li");
+    li.className = "room-item";
+    const full = r.count >= r.max;
+    li.innerHTML = `
+      <span class="room-code">${r.code}</span>
+      <span class="room-info">
+        <span class="room-host">👑 ${escapeHtml(r.host)}</span>
+        <span class="room-meta">${r.category ? escapeHtml(r.category) + " · " : ""}${r.count}/${r.max}명${r.decoy ? " · 🎭" : ""}</span>
+      </span>
+      <button class="room-join-btn"${full || !connected ? " disabled" : ""}>${full ? "가득참" : "입장"}</button>`;
+    if (!full) li.querySelector(".room-join-btn").onclick = () => joinRoomCode(r.code);
+    ul.appendChild(li);
+  });
+}
+socket.on("roomList", renderRooms);
+$("btn-refresh-rooms").onclick = () => { if (connected) socket.emit("browse"); };
 
 function lockJoin(text) {
-  $("btn-create").disabled = true; $("btn-join").disabled = true;
+  $("btn-create").disabled = true;
   $("btn-create").textContent = text;
+  document.querySelectorAll("#rooms-list .room-join-btn, #btn-invite-join").forEach((b) => (b.disabled = true));
   clearTimeout(joinTimer);
   joinTimer = setTimeout(() => { setLoginEnabled(true); toast("응답이 없어요. 다시 시도해 주세요."); }, 6000);
 }
 
+// 초대 링크(?room=CODE)로 들어온 경우: 바로 입장 버튼 노출
 const urlRoom = new URLSearchParams(location.search).get("room");
-if (urlRoom && !roomCode) $("roomCode").value = urlRoom.toUpperCase().slice(0, 4);
+if (urlRoom && !roomCode) {
+  const code = urlRoom.toUpperCase().slice(0, 4);
+  $("invite-code").textContent = code;
+  $("invite-block").classList.remove("hidden");
+  $("btn-invite-join").onclick = () => joinRoomCode(code);
+}
 
 socket.on("joined", ({ roomCode: code, playerId }) => {
   clearTimeout(joinTimer);
@@ -110,6 +140,7 @@ socket.on("rejoinFailed", ({ message }) => {
   sessionStorage.removeItem("liarRoom");
   setLoginEnabled(true);
   show("login");
+  if (connected) socket.emit("browse");
   if (message) toast(message);
 });
 
